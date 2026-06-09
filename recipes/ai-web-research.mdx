@@ -1,0 +1,229 @@
+---
+title: AI Agent Web Research
+description: "Give AI agents reliable web access with MCP tools"
+sidebarTitle: "AI Web Research"
+---
+
+# AI Agent Web Research
+
+Enable AI agents (Claude, GPT, LangChain) to browse the web reliably through stealth browsers, avoiding blocks and CAPTCHAs.
+
+## The Challenge
+
+AI agents need web access for research, but:
+- Direct HTTP requests get blocked by anti-bot systems
+- APIs have rate limits and don't render JavaScript
+- Captchas break automated flows
+- Agent frameworks need structured tool interfaces
+
+## MCP Server Setup
+
+```json
+// ~/.config/claude/mcp.json
+{
+  "mcpServers": {
+    "meshbrow": {
+      "command": "npx",
+      "args": ["@meshbrow/mcp-server"],
+      "env": {
+        "MESHBROW_API_KEY": "mb_live_..."
+      }
+    }
+  }
+}
+```
+
+## LangChain Integration
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium } from 'playwright';
+import { Tool } from 'langchain/tools';
+
+class MeshbrowBrowseTool extends Tool {
+  name = 'browse_web';
+  description = 'Browse a webpage and extract its text content. Use for research, fact-checking, and data gathering.';
+
+  private client: Meshbrow;
+  private sessionId: string | null = null;
+  private cdpUrl: string | null = null;
+
+  constructor() {
+    super();
+    this.client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+  }
+
+  async _call(url: string): Promise<string> {
+    // Reuse session if available, create if not
+    if (!this.sessionId) {
+      const session = await this.client.sessions.create({
+        proxy: { type: 'residential', country: 'US' },
+        stealth: 'max',
+        timeout: 600,
+      });
+      this.sessionId = session.id;
+      this.cdpUrl = session.cdpUrl;
+    }
+
+    const browser = await chromium.connectOverCDP(this.cdpUrl!);
+    const page = browser.contexts()[0].pages()[0];
+
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000); // Let dynamic content load
+
+      // Extract structured content
+      const content = await page.evaluate(() => {
+        // Remove scripts, styles, nav, footer
+        const removes = document.querySelectorAll(
+          'script, style, nav, footer, header, aside, [role="banner"], [role="navigation"]'
+        );
+        removes.forEach((el) => el.remove());
+
+        // Get main content
+        const main =
+          document.querySelector('main') ||
+          document.querySelector('article') ||
+          document.querySelector('[role="main"]') ||
+          document.body;
+
+        return main?.innerText?.slice(0, 8000) || 'No content found';
+      });
+
+      return `URL: ${url}\n\n${content}`;
+    } catch (error) {
+      return `Error browsing ${url}: ${(error as Error).message}`;
+    }
+  }
+
+  async cleanup() {
+    if (this.sessionId) {
+      await this.client.sessions.destroy(this.sessionId);
+      this.sessionId = null;
+    }
+  }
+}
+
+// Usage with LangChain agent
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+import { AgentExecutor, createOpenAIFunctionsAgent } from 'langchain/agents';
+
+const tools = [new MeshbrowBrowseTool()];
+const model = new ChatOpenAI({ modelName: 'gpt-4' });
+const agent = await createOpenAIFunctionsAgent({ llm: model, tools, prompt });
+const executor = new AgentExecutor({ agent, tools });
+
+const result = await executor.invoke({
+  input: 'Research the latest pricing for AWS Lambda and compare it to Google Cloud Functions',
+});
+```
+
+## Multi-Page Research Agent
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium, Page } from 'playwright';
+
+interface ResearchResult {
+  url: string;
+  title: string;
+  content: string;
+  links: string[];
+}
+
+class WebResearcher {
+  private client: Meshbrow;
+  private page: Page | null = null;
+  private sessionId: string | null = null;
+
+  constructor(apiKey: string) {
+    this.client = new Meshbrow({ apiKey });
+  }
+
+  async init() {
+    const session = await this.client.sessions.create({
+      proxy: { type: 'residential', country: 'US' },
+      stealth: 'max',
+      timeout: 1800, // 30 min for research sessions
+    });
+    this.sessionId = session.id;
+
+    const browser = await chromium.connectOverCDP(session.cdpUrl);
+    this.page = browser.contexts()[0].pages()[0];
+  }
+
+  async research(url: string): Promise<ResearchResult> {
+    if (!this.page) throw new Error('Not initialized');
+
+    await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+    await this.page.waitForTimeout(1500);
+
+    const title = await this.page.title();
+    const content = await this.page.evaluate(() => {
+      const main = document.querySelector('main, article, [role="main"]') || document.body;
+      return main.innerText.slice(0, 5000);
+    });
+
+    const links = await this.page.evaluate(() => {
+      return Array.from(document.querySelectorAll('a[href]'))
+        .map((a) => ({ text: a.textContent?.trim(), href: (a as HTMLAnchorElement).href }))
+        .filter((l) => l.text && l.href.startsWith('http'))
+        .slice(0, 20)
+        .map((l) => `${l.text}: ${l.href}`);
+    });
+
+    return { url, title, content, links };
+  }
+
+  async searchAndResearch(query: string): Promise<ResearchResult[]> {
+    if (!this.page) throw new Error('Not initialized');
+
+    // Search via DuckDuckGo (doesn't require JS)
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    await this.page.goto(searchUrl);
+
+    const resultUrls = await this.page.evaluate(() => {
+      return Array.from(document.querySelectorAll('.result__a'))
+        .slice(0, 5)
+        .map((a) => (a as HTMLAnchorElement).href);
+    });
+
+    const results: ResearchResult[] = [];
+    for (const url of resultUrls) {
+      try {
+        const result = await this.research(url);
+        results.push(result);
+        await this.page.waitForTimeout(1000 + Math.random() * 2000);
+      } catch {
+        // Skip failed pages
+      }
+    }
+
+    return results;
+  }
+
+  async destroy() {
+    if (this.sessionId) {
+      await this.client.sessions.destroy(this.sessionId);
+    }
+  }
+}
+
+// Usage
+const researcher = new WebResearcher(process.env.MESHBROW_API_KEY!);
+await researcher.init();
+
+const results = await researcher.searchAndResearch('best practices GraphQL API design 2026');
+for (const r of results) {
+  console.log(`\n## ${r.title}\n${r.content.slice(0, 500)}...`);
+}
+
+await researcher.destroy();
+```
+
+## Key Takeaways
+
+- **Reuse sessions** — Create one browser and navigate across pages instead of spinning up new sessions per URL
+- **Extract text, not HTML** — Agents work better with clean text than raw markup
+- **Set generous timeouts** — Research sessions may take 10-30 minutes
+- **Handle errors gracefully** — Some pages will fail; skip and continue

@@ -1,0 +1,365 @@
+---
+title: Web Scraping & Data Extraction
+description: "Extract structured data at scale with stealth browsers"
+sidebarTitle: "Data Extraction"
+---
+
+# Web Scraping & Data Extraction
+
+Extract structured data from complex websites that use JavaScript rendering, anti-bot measures, and dynamic content loading.
+
+## The Challenge
+
+Modern websites make scraping difficult with:
+- Client-side rendering (SPAs) that require full JS execution
+- Aggressive bot detection (Cloudflare, DataDome, PerimeterX)
+- Rate limiting and IP blocking
+- Infinite scroll and lazy-loaded content
+- Dynamic selectors and obfuscated class names
+
+## Single-Page Extraction
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium, Page } from 'playwright';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+interface Product {
+  title: string;
+  price: number;
+  currency: string;
+  rating: number;
+  reviews: number;
+  url: string;
+  imageUrl: string;
+  availability: string;
+}
+
+async function scrapeProductPage(url: string): Promise<Product> {
+  const session = await client.sessions.create({
+    stealth: 'max',
+    proxy: { type: 'residential', country: 'US' },
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  try {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
+
+    const product = await page.evaluate(() => {
+      // Use structured data (JSON-LD) if available
+      const jsonLd = document.querySelector('script[type="application/ld+json"]');
+      if (jsonLd) {
+        try {
+          const data = JSON.parse(jsonLd.textContent || '');
+          if (data['@type'] === 'Product') {
+            return {
+              title: data.name,
+              price: parseFloat(data.offers?.price || '0'),
+              currency: data.offers?.priceCurrency || 'USD',
+              rating: parseFloat(data.aggregateRating?.ratingValue || '0'),
+              reviews: parseInt(data.aggregateRating?.reviewCount || '0'),
+              url: window.location.href,
+              imageUrl: data.image?.[0] || data.image || '',
+              availability: data.offers?.availability?.includes('InStock') ? 'In Stock' : 'Out of Stock',
+            };
+          }
+        } catch {}
+      }
+
+      // Fallback: DOM extraction
+      const title = document.querySelector('h1')?.textContent?.trim() || '';
+      const priceEl = document.querySelector('[data-price], .price, .product-price');
+      const priceText = priceEl?.textContent || '0';
+      const price = parseFloat(priceText.replace(/[^0-9.]/g, ''));
+
+      return {
+        title,
+        price,
+        currency: 'USD',
+        rating: 0,
+        reviews: 0,
+        url: window.location.href,
+        imageUrl: (document.querySelector('.product-image img, [data-image]') as HTMLImageElement)?.src || '',
+        availability: 'Unknown',
+      };
+    });
+
+    return product;
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+}
+```
+
+## Infinite Scroll Handling
+
+```typescript
+async function scrapeInfiniteScroll(
+  url: string,
+  maxItems: number = 100
+): Promise<any[]> {
+  const session = await client.sessions.create({
+    stealth: 'max',
+    proxy: { type: 'residential', country: 'US' },
+    timeout: 600, // 10 min for large scrapes
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+  const items: any[] = [];
+
+  try {
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000);
+
+    let previousHeight = 0;
+    let staleCount = 0;
+
+    while (items.length < maxItems && staleCount < 3) {
+      // Extract visible items
+      const newItems = await page.evaluate((existingCount) => {
+        const elements = document.querySelectorAll('.item, .card, [data-item]');
+        return Array.from(elements)
+          .slice(existingCount)
+          .map((el) => ({
+            title: el.querySelector('h2, h3, .title')?.textContent?.trim(),
+            link: (el.querySelector('a') as HTMLAnchorElement)?.href,
+            description: el.querySelector('p, .desc')?.textContent?.trim(),
+          }));
+      }, items.length);
+
+      items.push(...newItems);
+
+      // Scroll down
+      const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+      if (currentHeight === previousHeight) {
+        staleCount++;
+      } else {
+        staleCount = 0;
+      }
+      previousHeight = currentHeight;
+
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(2000 + Math.random() * 2000);
+
+      // Click "Load More" button if present
+      const loadMore = await page.$('button:has-text("Load More"), a:has-text("Show More")');
+      if (loadMore) {
+        await loadMore.click();
+        await page.waitForTimeout(2000);
+      }
+    }
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+
+  return items.slice(0, maxItems);
+}
+```
+
+## Anti-Bot Bypass with Session Warming
+
+```typescript
+async function scrapeProtectedSite(targetUrl: string): Promise<string> {
+  // Create persistent profile for this site
+  const session = await client.sessions.create({
+    stealth: 'max',
+    proxy: { type: 'residential', country: 'US' },
+    fingerprint: {
+      platform: 'Win32',
+      vendor: 'Google Inc.',
+    },
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  try {
+    // Step 1: Warm up session with natural browsing
+    await page.goto('https://www.google.com');
+    await page.waitForTimeout(2000);
+
+    // Search for the site (builds referrer chain)
+    const domain = new URL(targetUrl).hostname;
+    await page.fill('input[name="q"]', domain);
+    await page.keyboard.press('Enter');
+    await page.waitForNavigation();
+    await page.waitForTimeout(2000);
+
+    // Step 2: Navigate through referrer
+    await page.goto(targetUrl, {
+      referer: 'https://www.google.com',
+      waitUntil: 'networkidle',
+    });
+
+    // Step 3: Handle Cloudflare challenge if present
+    const isChallenged = await page.evaluate(() => {
+      return document.title.includes('Just a moment') ||
+        document.querySelector('#challenge-running') !== null;
+    });
+
+    if (isChallenged) {
+      // Wait for challenge to auto-solve (Meshbrow handles this)
+      await page.waitForFunction(
+        () => !document.title.includes('Just a moment'),
+        { timeout: 30000 }
+      );
+      await page.waitForTimeout(2000);
+    }
+
+    // Step 4: Extract content
+    const content = await page.evaluate(() => document.body.innerHTML);
+    return content;
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+}
+```
+
+## Concurrent Scraping with Proxy Rotation
+
+```typescript
+class ScrapingPool {
+  private client: Meshbrow;
+  private maxConcurrency: number;
+  private activeCount = 0;
+  private queue: Array<() => Promise<void>> = [];
+
+  constructor(apiKey: string, maxConcurrency: number = 5) {
+    this.client = new Meshbrow({ apiKey });
+    this.maxConcurrency = maxConcurrency;
+  }
+
+  async scrapeUrls<T>(
+    urls: string[],
+    extractor: (page: Page) => Promise<T>
+  ): Promise<Map<string, T>> {
+    const results = new Map<string, T>();
+
+    const tasks = urls.map((url) => async () => {
+      const session = await this.client.sessions.create({
+        stealth: 'max',
+        proxy: { type: 'residential', rotate: true }, // New IP per session
+      });
+
+      const browser = await chromium.connectOverCDP(session.cdpUrl);
+      const page = browser.contexts()[0].pages()[0];
+
+      try {
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        await page.waitForTimeout(1000 + Math.random() * 2000);
+
+        const data = await extractor(page);
+        results.set(url, data);
+      } catch (error) {
+        console.error(`Failed: ${url}`, error);
+      } finally {
+        await this.client.sessions.destroy(session.id);
+      }
+    });
+
+    // Execute with concurrency control
+    await this.executeBatch(tasks);
+    return results;
+  }
+
+  private async executeBatch(tasks: Array<() => Promise<void>>) {
+    const executing: Promise<void>[] = [];
+
+    for (const task of tasks) {
+      const p = task().then(() => {
+        executing.splice(executing.indexOf(p), 1);
+      });
+      executing.push(p);
+
+      if (executing.length >= this.maxConcurrency) {
+        await Promise.race(executing);
+      }
+
+      // Brief delay between launches
+      await new Promise((r) => setTimeout(r, 500 + Math.random() * 1000));
+    }
+
+    await Promise.all(executing);
+  }
+}
+
+// Usage
+const pool = new ScrapingPool(process.env.MESHBROW_API_KEY!, 5);
+
+const urls = [
+  'https://example.com/page/1',
+  'https://example.com/page/2',
+  'https://example.com/page/3',
+];
+
+const data = await pool.scrapeUrls(urls, async (page) => {
+  return page.evaluate(() => ({
+    title: document.title,
+    text: document.body.innerText.slice(0, 5000),
+    links: Array.from(document.querySelectorAll('a[href]'))
+      .map((a) => (a as HTMLAnchorElement).href)
+      .slice(0, 50),
+  }));
+});
+```
+
+## Structured Data Extraction Patterns
+
+```typescript
+// Extract tables
+async function extractTable(page: Page, tableSelector: string) {
+  return page.evaluate((sel) => {
+    const table = document.querySelector(sel) as HTMLTableElement;
+    if (!table) return [];
+
+    const headers = Array.from(table.querySelectorAll('th')).map(
+      (th) => th.textContent?.trim() || ''
+    );
+
+    return Array.from(table.querySelectorAll('tbody tr')).map((row) => {
+      const cells = Array.from(row.querySelectorAll('td'));
+      const obj: Record<string, string> = {};
+      cells.forEach((cell, i) => {
+        obj[headers[i] || `col_${i}`] = cell.textContent?.trim() || '';
+      });
+      return obj;
+    });
+  }, tableSelector);
+}
+
+// Extract list items
+async function extractList(page: Page, listSelector: string) {
+  return page.evaluate((sel) => {
+    return Array.from(document.querySelectorAll(`${sel} li`)).map(
+      (li) => li.textContent?.trim() || ''
+    );
+  }, listSelector);
+}
+
+// Extract meta/SEO data
+async function extractMeta(page: Page) {
+  return page.evaluate(() => ({
+    title: document.title,
+    description: document.querySelector('meta[name="description"]')?.getAttribute('content'),
+    canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+    ogImage: document.querySelector('meta[property="og:image"]')?.getAttribute('content'),
+    h1: document.querySelector('h1')?.textContent?.trim(),
+    h2s: Array.from(document.querySelectorAll('h2')).map((h) => h.textContent?.trim()),
+  }));
+}
+```
+
+## Key Takeaways
+
+- **Residential proxies + rotation** — New IP per session avoids IP blocks
+- **Session warming** — Browse naturally before targeting protected pages
+- **Structured data first** — JSON-LD gives you clean data without DOM parsing
+- **Concurrency control** — 3-5 parallel sessions balances speed and stealth
+- **Handle infinite scroll** — Track scroll height to detect end of content
+- **Cloudflare auto-solve** — Meshbrow's stealth handles most challenges automatically
+- **Timeout generously** — Protected sites may take 30s+ to clear challenges

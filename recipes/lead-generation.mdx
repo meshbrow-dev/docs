@@ -1,0 +1,218 @@
+---
+title: Lead Generation & Contact Scraping
+description: "Extract business contacts from directories and LinkedIn"
+sidebarTitle: "Lead Generation"
+---
+
+# Lead Generation & Contact Scraping
+
+Extract business contacts from directories, company websites, and professional networks using stealth browsers with session persistence.
+
+## The Challenge
+
+Lead generation targets (LinkedIn, directories, company sites):
+- Have aggressive anti-scraping measures
+- Rate-limit aggressively
+- Require authenticated sessions
+- Block datacenter IPs
+
+## Directory Scraping
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium, Page } from 'playwright';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+interface Lead {
+  name: string;
+  company: string;
+  title: string;
+  email?: string;
+  phone?: string;
+  location: string;
+  source: string;
+}
+
+async function scrapeDirectory(
+  searchQuery: string,
+  maxPages: number = 5
+): Promise<Lead[]> {
+  const session = await client.sessions.create({
+    proxy: { type: 'residential', country: 'US' },
+    stealth: 'max',
+    timeout: 1200, // 20 min for deep scraping
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+  const leads: Lead[] = [];
+
+  try {
+    // Search the directory
+    await page.goto(`https://directory.example.com/search?q=${encodeURIComponent(searchQuery)}`);
+    await page.waitForTimeout(3000);
+
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      // Extract leads from current page
+      const pageLeads = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('.listing-card')).map((card) => ({
+          name: card.querySelector('.name')?.textContent?.trim() || '',
+          company: card.querySelector('.company')?.textContent?.trim() || '',
+          title: card.querySelector('.title')?.textContent?.trim() || '',
+          email: card.querySelector('a[href^="mailto:"]')?.getAttribute('href')?.replace('mailto:', '') || undefined,
+          phone: card.querySelector('a[href^="tel:"]')?.getAttribute('href')?.replace('tel:', '') || undefined,
+          location: card.querySelector('.location')?.textContent?.trim() || '',
+          source: window.location.href,
+        }));
+      });
+
+      leads.push(...pageLeads);
+      console.log(`Page ${pageNum}: found ${pageLeads.length} leads (total: ${leads.length})`);
+
+      // Navigate to next page
+      const nextButton = await page.$('a[rel="next"], .pagination-next');
+      if (!nextButton || pageNum >= maxPages) break;
+
+      await nextButton.click();
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(2000 + Math.random() * 3000);
+    }
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+
+  return leads;
+}
+```
+
+## Company Website Email Discovery
+
+```typescript
+async function discoverEmails(companyDomain: string): Promise<string[]> {
+  const session = await client.sessions.create({
+    proxy: { type: 'residential', country: 'US' },
+    stealth: 'max',
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+  const emails = new Set<string>();
+
+  try {
+    // Check common pages for contact info
+    const pagesToCheck = [
+      `https://${companyDomain}`,
+      `https://${companyDomain}/contact`,
+      `https://${companyDomain}/about`,
+      `https://${companyDomain}/team`,
+      `https://${companyDomain}/about-us`,
+    ];
+
+    for (const url of pagesToCheck) {
+      try {
+        await page.goto(url, { timeout: 10000 });
+        await page.waitForTimeout(1500);
+
+        // Extract emails from page content
+        const pageEmails = await page.evaluate(() => {
+          const text = document.body.innerText;
+          const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+          return [...new Set(text.match(emailRegex) || [])];
+        });
+
+        pageEmails.forEach((e) => emails.add(e));
+
+        // Also check mailto links
+        const mailtoEmails = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('a[href^="mailto:"]'))
+            .map((a) => a.getAttribute('href')?.replace('mailto:', '').split('?')[0] || '')
+            .filter(Boolean);
+        });
+
+        mailtoEmails.forEach((e) => emails.add(e));
+      } catch {
+        // Skip pages that fail to load
+      }
+
+      await page.waitForTimeout(1000 + Math.random() * 2000);
+    }
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+
+  // Filter out generic emails
+  const genericPatterns = ['noreply', 'no-reply', 'support', 'info@', 'hello@', 'admin@'];
+  return [...emails].filter(
+    (email) => !genericPatterns.some((p) => email.toLowerCase().includes(p))
+  );
+}
+```
+
+## Batch Processing with Rate Limiting
+
+```typescript
+class LeadScraper {
+  private client: Meshbrow;
+  private concurrency: number;
+
+  constructor(apiKey: string, concurrency: number = 3) {
+    this.client = new Meshbrow({ apiKey });
+    this.concurrency = concurrency;
+  }
+
+  async scrapeCompanies(domains: string[]): Promise<Map<string, string[]>> {
+    const results = new Map<string, string[]>();
+    const chunks = this.chunk(domains, this.concurrency);
+
+    for (const chunk of chunks) {
+      const batchResults = await Promise.all(
+        chunk.map(async (domain) => {
+          try {
+            const emails = await discoverEmails(domain);
+            return { domain, emails };
+          } catch (error) {
+            console.error(`Failed for ${domain}:`, error);
+            return { domain, emails: [] };
+          }
+        })
+      );
+
+      for (const { domain, emails } of batchResults) {
+        results.set(domain, emails);
+      }
+
+      // Respect rate limits between batches
+      await new Promise((resolve) => setTimeout(resolve, 5000 + Math.random() * 5000));
+    }
+
+    return results;
+  }
+
+  private chunk<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  }
+}
+
+// Usage
+const scraper = new LeadScraper(process.env.MESHBROW_API_KEY!, 3);
+const companies = ['acme.com', 'widget.io', 'startup.dev', 'bigcorp.com'];
+const emailMap = await scraper.scrapeCompanies(companies);
+
+for (const [domain, emails] of emailMap) {
+  console.log(`${domain}: ${emails.join(', ') || 'No emails found'}`);
+}
+```
+
+## Key Takeaways
+
+- **Residential proxies** — Directories block datacenter IPs aggressively
+- **Moderate concurrency** — 3-5 parallel sessions prevents detection
+- **Rate limit between batches** — 5-10s between groups of requests
+- **Multiple page sources** — Check /contact, /about, /team for emails
+- **Filter generic addresses** — Exclude noreply@, support@, info@
+- **Respect robots.txt** — Stay within ethical scraping bounds

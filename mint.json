@@ -33,6 +33,10 @@
     {
       "name": "Guides",
       "url": "guides"
+    },
+    {
+      "name": "Recipes",
+      "url": "recipes"
     }
   ],
   "anchors": [
@@ -89,6 +93,20 @@
         "guides/mcp-agents",
         "guides/anti-detection",
         "guides/proxy-selection"
+      ]
+    },
+    {
+      "group": "Recipes",
+      "pages": [
+        "recipes/price-monitoring",
+        "recipes/ai-web-research",
+        "recipes/social-media",
+        "recipes/ad-verification",
+        "recipes/lead-generation",
+        "recipes/form-filling",
+        "recipes/screenshot-monitoring",
+        "recipes/data-extraction",
+        "recipes/session-persistence"
       ]
     }
   ],

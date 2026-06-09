@@ -1,0 +1,275 @@
+---
+title: Automated Form Filling
+description: "Fill and submit forms across sites with saved profiles"
+sidebarTitle: "Form Filling"
+---
+
+# Automated Form Filling
+
+Automate complex multi-step forms (job applications, registrations, checkout flows) using profile persistence and natural interaction patterns.
+
+## The Challenge
+
+Modern forms implement:
+- Multi-step flows with session validation
+- CAPTCHA challenges on suspicious submissions
+- Timing analysis to detect bots
+- Honeypot fields that trap automated submissions
+- JavaScript validation that blocks programmatic input
+
+## Human-Like Form Interaction
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium, Page } from 'playwright';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+class FormFiller {
+  private page: Page;
+
+  constructor(page: Page) {
+    this.page = page;
+  }
+
+  // Type text with natural human variation
+  async typeNatural(selector: string, text: string) {
+    await this.page.click(selector);
+    await this.page.waitForTimeout(200 + Math.random() * 300);
+
+    for (const char of text) {
+      await this.page.keyboard.type(char, {
+        delay: 30 + Math.random() * 120,
+      });
+
+      // Occasional typo and correction (5% chance)
+      if (Math.random() < 0.05 && text.length > 5) {
+        const wrongChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
+        await this.page.keyboard.type(wrongChar, { delay: 50 });
+        await this.page.waitForTimeout(200 + Math.random() * 400);
+        await this.page.keyboard.press('Backspace');
+        await this.page.waitForTimeout(100 + Math.random() * 200);
+      }
+    }
+  }
+
+  // Select dropdown with mouse movement
+  async selectOption(selector: string, value: string) {
+    await this.page.click(selector);
+    await this.page.waitForTimeout(300 + Math.random() * 500);
+    await this.page.selectOption(selector, value);
+    await this.page.waitForTimeout(200 + Math.random() * 400);
+  }
+
+  // Click checkbox/radio with human delay
+  async checkBox(selector: string) {
+    await this.page.waitForTimeout(500 + Math.random() * 1000);
+    await this.page.click(selector);
+    await this.page.waitForTimeout(200 + Math.random() * 300);
+  }
+
+  // Scroll to element naturally
+  async scrollTo(selector: string) {
+    const element = await this.page.$(selector);
+    if (element) {
+      await element.scrollIntoViewIfNeeded();
+      await this.page.waitForTimeout(300 + Math.random() * 500);
+    }
+  }
+
+  // Wait between form sections (reading time)
+  async thinkingPause() {
+    await this.page.waitForTimeout(2000 + Math.random() * 4000);
+  }
+}
+```
+
+## Multi-Step Registration
+
+```typescript
+interface RegistrationData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  company?: string;
+  phone?: string;
+  country: string;
+  agreeTerms: boolean;
+}
+
+async function registerAccount(
+  url: string,
+  data: RegistrationData
+): Promise<{ success: boolean; profileId?: string }> {
+  const session = await client.sessions.create({
+    stealth: 'max',
+    proxy: { type: 'residential', country: 'US' },
+    recording: { screenshots: true },
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+  const filler = new FormFiller(page);
+
+  try {
+    await page.goto(url);
+    await page.waitForTimeout(2000 + Math.random() * 2000);
+
+    // Step 1: Personal info
+    await filler.scrollTo('input[name="firstName"]');
+    await filler.typeNatural('input[name="firstName"]', data.firstName);
+    await filler.typeNatural('input[name="lastName"]', data.lastName);
+    await filler.thinkingPause();
+
+    await filler.typeNatural('input[name="email"], input[type="email"]', data.email);
+    await filler.typeNatural('input[name="password"], input[type="password"]', data.password);
+
+    if (data.phone) {
+      await filler.typeNatural('input[name="phone"], input[type="tel"]', data.phone);
+    }
+
+    // Step 2: Company info (if present)
+    if (data.company) {
+      const companyField = await page.$('input[name="company"]');
+      if (companyField) {
+        await filler.typeNatural('input[name="company"]', data.company);
+      }
+    }
+
+    // Country selection
+    const countrySelect = await page.$('select[name="country"]');
+    if (countrySelect) {
+      await filler.selectOption('select[name="country"]', data.country);
+    }
+
+    // Terms checkbox
+    if (data.agreeTerms) {
+      await filler.checkBox('input[name="terms"], input[type="checkbox"]');
+    }
+
+    await filler.thinkingPause();
+
+    // Submit — avoid honeypots
+    const honeypots = await page.$$('input[style*="display:none"], input[tabindex="-1"]');
+    // Don't fill hidden fields — that's how bots get caught
+
+    await page.click('button[type="submit"]');
+    await page.waitForTimeout(5000);
+
+    // Check for success
+    const success = await page.evaluate(() => {
+      const text = document.body.innerText.toLowerCase();
+      return (
+        text.includes('welcome') ||
+        text.includes('success') ||
+        text.includes('verify your email') ||
+        text.includes('account created')
+      );
+    });
+
+    if (success) {
+      // Save profile for future sessions
+      const profile = await client.profiles.create({
+        name: `account-${data.email}`,
+        tags: ['registration'],
+      });
+
+      await client.sessions.destroy(session.id, { saveProfile: true });
+      return { success: true, profileId: profile.id };
+    }
+
+    return { success: false };
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+}
+```
+
+## Checkout Flow Automation
+
+```typescript
+interface CheckoutData {
+  card: { number: string; expiry: string; cvv: string; name: string };
+  shipping: {
+    address: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
+}
+
+async function automateCheckout(
+  profileId: string,
+  cartUrl: string,
+  checkout: CheckoutData
+): Promise<{ success: boolean; orderId?: string }> {
+  // Use saved profile (already logged in with items in cart)
+  const session = await client.sessions.create({
+    profileId,
+    stealth: 'max',
+    proxy: { type: 'residential', country: checkout.shipping.country },
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+  const filler = new FormFiller(page);
+
+  try {
+    await page.goto(cartUrl);
+    await page.waitForTimeout(3000);
+
+    // Proceed to checkout
+    await page.click('a[href*="checkout"], button:has-text("Checkout")');
+    await page.waitForNavigation();
+    await filler.thinkingPause();
+
+    // Shipping address
+    await filler.typeNatural('input[name="address"]', checkout.shipping.address);
+    await filler.typeNatural('input[name="city"]', checkout.shipping.city);
+    await filler.selectOption('select[name="state"]', checkout.shipping.state);
+    await filler.typeNatural('input[name="zip"]', checkout.shipping.zip);
+    await filler.thinkingPause();
+
+    // Continue to payment
+    await page.click('button:has-text("Continue"), button[type="submit"]');
+    await page.waitForTimeout(3000);
+
+    // Payment info (in iframe typically)
+    const paymentFrame = page.frameLocator('iframe[name*="card"], iframe[src*="stripe"]');
+    if (paymentFrame) {
+      await paymentFrame.locator('input[name="cardnumber"]').fill(checkout.card.number);
+      await paymentFrame.locator('input[name="exp-date"]').fill(checkout.card.expiry);
+      await paymentFrame.locator('input[name="cvc"]').fill(checkout.card.cvv);
+    }
+
+    await filler.thinkingPause();
+
+    // Place order
+    await page.click('button:has-text("Place Order"), button:has-text("Pay")');
+    await page.waitForTimeout(10000);
+
+    // Extract order confirmation
+    const orderId = await page.evaluate(() => {
+      const text = document.body.innerText;
+      const match = text.match(/order\s*(?:#|number|id)?\s*:?\s*([A-Z0-9-]+)/i);
+      return match ? match[1] : null;
+    });
+
+    await client.sessions.destroy(session.id, { saveProfile: true });
+    return { success: !!orderId, orderId: orderId || undefined };
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+}
+```
+
+## Key Takeaways
+
+- **Variable typing speed** — 30-150ms per character with occasional typos
+- **Thinking pauses** — 2-6s between form sections mimics reading
+- **Avoid honeypots** — Never fill hidden or negative-tabindex fields
+- **Scroll naturally** — Scroll to elements before interacting
+- **Save profiles** — Maintain session state between steps
+- **Use residential proxies** — Match proxy geo to form's target country

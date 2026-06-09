@@ -1,0 +1,231 @@
+---
+title: Social Media Account Management
+description: "Manage multiple social accounts with persistent profiles"
+sidebarTitle: "Social Media"
+---
+
+# Social Media Account Management
+
+Manage multiple social media accounts safely using persistent profiles, sticky ISP proxies, and unique fingerprints per account.
+
+## The Challenge
+
+Social platforms detect multi-accounting through:
+- Browser fingerprint correlation
+- IP address sharing between accounts
+- Login pattern analysis
+- Cookie/storage cross-contamination
+
+## Account Profile Setup
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium } from 'playwright';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+interface SocialAccount {
+  platform: string;
+  username: string;
+  profileId: string;
+  proxyCountry: string;
+}
+
+// Create a dedicated profile per account
+async function setupAccountProfile(account: {
+  platform: string;
+  username: string;
+  country: string;
+}): Promise<string> {
+  const profile = await client.profiles.create({
+    name: `${account.platform}-${account.username}`,
+    fingerprint: {
+      platform: 'Win32', // Consistent OS per account
+      locale: 'en-US',
+      timezone: 'America/New_York',
+    },
+    proxy: {
+      type: 'isp', // Static residential IP
+      country: account.country,
+      sticky: true, // Same IP every time
+    },
+    tags: [account.platform, 'social', account.username],
+  });
+
+  return profile.id;
+}
+
+// First-time login and save
+async function initialLogin(
+  profileId: string,
+  loginUrl: string,
+  credentials: { email: string; password: string }
+) {
+  const session = await client.sessions.create({
+    profileId,
+    stealth: 'max',
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  try {
+    await page.goto(loginUrl);
+    await page.waitForTimeout(2000 + Math.random() * 2000);
+
+    // Fill login form with human-like typing
+    await page.click('input[name="email"], input[type="email"]');
+    await page.keyboard.type(credentials.email, { delay: 50 + Math.random() * 100 });
+
+    await page.waitForTimeout(500 + Math.random() * 1000);
+
+    await page.click('input[name="password"], input[type="password"]');
+    await page.keyboard.type(credentials.password, { delay: 50 + Math.random() * 100 });
+
+    await page.waitForTimeout(1000 + Math.random() * 1500);
+    await page.click('button[type="submit"]');
+
+    // Wait for navigation or dashboard
+    await page.waitForNavigation({ timeout: 15000 });
+    await page.waitForTimeout(3000);
+
+    console.log(`Logged in to ${loginUrl} successfully`);
+  } finally {
+    // Save cookies and destroy
+    await client.sessions.destroy(session.id, { saveProfile: true });
+  }
+}
+```
+
+## Automated Posting
+
+```typescript
+async function postContent(
+  account: SocialAccount,
+  content: string,
+  mediaUrl?: string
+) {
+  // Launch session with saved profile (already logged in)
+  const session = await client.sessions.create({
+    profileId: account.profileId,
+    stealth: 'max',
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  try {
+    // Navigate to compose page
+    await page.goto(`https://${account.platform}.com/compose`);
+    await page.waitForTimeout(2000 + Math.random() * 3000);
+
+    // Check if still logged in
+    const isLoggedIn = await page.evaluate(() => {
+      return !document.querySelector('a[href*="login"], form[action*="login"]');
+    });
+
+    if (!isLoggedIn) {
+      console.warn(`Session expired for ${account.username}, re-login needed`);
+      await client.sessions.destroy(session.id);
+      return { success: false, reason: 'session_expired' };
+    }
+
+    // Type content with natural cadence
+    const textArea = await page.waitForSelector(
+      'textarea, [contenteditable="true"], [role="textbox"]'
+    );
+    await textArea.click();
+    await page.waitForTimeout(500);
+
+    // Type in bursts like a human
+    const words = content.split(' ');
+    for (let i = 0; i < words.length; i++) {
+      await page.keyboard.type(words[i] + ' ', {
+        delay: 30 + Math.random() * 80,
+      });
+      // Occasional pause (thinking)
+      if (Math.random() < 0.2) {
+        await page.waitForTimeout(500 + Math.random() * 2000);
+      }
+    }
+
+    await page.waitForTimeout(2000 + Math.random() * 3000);
+
+    // Submit post
+    await page.click('button[data-testid="submit"], button[type="submit"]');
+    await page.waitForTimeout(3000);
+
+    console.log(`Posted to ${account.platform}/${account.username}`);
+    return { success: true };
+  } finally {
+    await client.sessions.destroy(session.id, { saveProfile: true });
+  }
+}
+```
+
+## Multi-Account Scheduler
+
+```typescript
+interface ScheduledPost {
+  account: SocialAccount;
+  content: string;
+  scheduledFor: Date;
+}
+
+class SocialScheduler {
+  private queue: ScheduledPost[] = [];
+
+  addPost(post: ScheduledPost) {
+    this.queue.push(post);
+    this.queue.sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime());
+  }
+
+  async run() {
+    while (this.queue.length > 0) {
+      const next = this.queue[0];
+      const waitMs = next.scheduledFor.getTime() - Date.now();
+
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
+      this.queue.shift();
+
+      try {
+        await postContent(next.account, next.content);
+      } catch (error) {
+        console.error(`Failed to post for ${next.account.username}:`, error);
+      }
+
+      // Random delay between accounts (5-15 min)
+      if (this.queue.length > 0) {
+        const delay = 300000 + Math.random() * 600000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+}
+
+// Usage
+const scheduler = new SocialScheduler();
+const accounts = await loadAccounts();
+
+for (const account of accounts) {
+  scheduler.addPost({
+    account,
+    content: 'Check out our new product launch! 🚀',
+    scheduledFor: new Date(Date.now() + Math.random() * 3600000),
+  });
+}
+
+await scheduler.run();
+```
+
+## Key Takeaways
+
+- **One profile per account** — Never mix cookies between accounts
+- **ISP proxies with sticky** — Same IP for each account, every session
+- **Human-like typing** — Variable delays, occasional pauses, natural cadence
+- **Save profiles after every session** — Keep cookies fresh
+- **Space out actions** — 5-15 min between accounts to avoid temporal correlation
+- **Monitor login state** — Re-authenticate proactively before cookies expire

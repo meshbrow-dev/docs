@@ -1,0 +1,283 @@
+---
+title: Cookie Management & Session Reuse
+description: "Persist and reuse authenticated sessions across browser instances"
+sidebarTitle: "Session Persistence"
+---
+
+# Cookie Management & Session Reuse
+
+Save authenticated sessions, share them across instances, and keep logins alive without re-authenticating every time.
+
+## The Challenge
+
+Session reuse requires:
+- Exporting cookies and localStorage from live sessions
+- Importing them into new browser instances reliably
+- Refreshing sessions before cookies expire
+- Handling session invalidation gracefully
+- Sharing sessions across team members or workers
+
+## Save & Restore Sessions
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium } from 'playwright';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+// Save an authenticated session
+async function saveAuthenticatedSession(
+  loginUrl: string,
+  credentials: { username: string; password: string },
+  profileName: string
+): Promise<string> {
+  // Create a profile that will persist the session
+  const profile = await client.profiles.create({
+    name: profileName,
+    fingerprint: { platform: 'Win32', locale: 'en-US' },
+    proxy: { type: 'residential', country: 'US', sticky: true },
+  });
+
+  const session = await client.sessions.create({
+    profileId: profile.id,
+    stealth: 'max',
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  try {
+    await page.goto(loginUrl);
+    await page.waitForTimeout(2000);
+
+    // Login
+    await page.fill('input[name="username"], input[type="email"]', credentials.username);
+    await page.fill('input[name="password"], input[type="password"]', credentials.password);
+    await page.click('button[type="submit"]');
+    await page.waitForNavigation();
+    await page.waitForTimeout(3000);
+
+    // Verify login success
+    const isLoggedIn = await page.evaluate(() => {
+      return document.cookie.includes('session') ||
+        document.querySelector('[data-user], .user-menu, .avatar') !== null;
+    });
+
+    if (!isLoggedIn) {
+      throw new Error('Login failed — no session cookie detected');
+    }
+
+    // Save profile (cookies + localStorage persisted automatically)
+    await client.sessions.destroy(session.id, { saveProfile: true });
+    console.log(`Session saved to profile: ${profile.id}`);
+    return profile.id;
+  } catch (error) {
+    await client.sessions.destroy(session.id);
+    throw error;
+  }
+}
+
+// Restore session from profile
+async function restoreSession(profileId: string): Promise<{
+  cdpUrl: string;
+  sessionId: string;
+  isValid: boolean;
+}> {
+  const session = await client.sessions.create({
+    profileId,
+    stealth: 'max',
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  // Navigate to check if still authenticated
+  await page.goto('https://app.example.com/dashboard');
+  await page.waitForTimeout(3000);
+
+  const isValid = await page.evaluate(() => {
+    // Check if redirected to login
+    return !window.location.href.includes('login') &&
+      !window.location.href.includes('signin');
+  });
+
+  return {
+    cdpUrl: session.cdpUrl,
+    sessionId: session.id,
+    isValid,
+  };
+}
+```
+
+## Cookie Export & Import
+
+```typescript
+// Export cookies in JSON format
+async function exportCookies(sessionId: string): Promise<string> {
+  const cookies = await client.sessions.exportCookies(sessionId, {
+    format: 'json',
+  });
+  return JSON.stringify(cookies, null, 2);
+}
+
+// Export in Netscape format (compatible with curl, wget)
+async function exportNetscape(sessionId: string): Promise<string> {
+  const cookies = await client.sessions.exportCookies(sessionId, {
+    format: 'netscape',
+  });
+  return cookies;
+}
+
+// Import cookies into a new session
+async function importCookiesIntoSession(
+  cookies: string,
+  format: 'json' | 'netscape' = 'json'
+): Promise<string> {
+  const session = await client.sessions.create({
+    stealth: 'max',
+    proxy: { type: 'residential', country: 'US' },
+  });
+
+  await client.sessions.importCookies(session.id, {
+    cookies,
+    format,
+    merge: true, // Merge with existing cookies instead of replacing
+  });
+
+  return session.id;
+}
+```
+
+## Session Health Monitoring
+
+```typescript
+interface SessionHealth {
+  profileId: string;
+  lastChecked: Date;
+  isValid: boolean;
+  expiresIn?: number; // seconds until session expires
+}
+
+class SessionManager {
+  private client: Meshbrow;
+  private sessions: Map<string, SessionHealth> = new Map();
+
+  constructor(apiKey: string) {
+    this.client = new Meshbrow({ apiKey });
+  }
+
+  async checkHealth(profileId: string): Promise<SessionHealth> {
+    const session = await this.client.sessions.create({ profileId, stealth: 'max' });
+    const browser = await chromium.connectOverCDP(session.cdpUrl);
+    const page = browser.contexts()[0].pages()[0];
+
+    try {
+      await page.goto('https://app.example.com/api/me');
+      await page.waitForTimeout(2000);
+
+      const response = await page.evaluate(() => {
+        const pre = document.querySelector('pre');
+        try {
+          return JSON.parse(pre?.textContent || '{}');
+        } catch {
+          return null;
+        }
+      });
+
+      const health: SessionHealth = {
+        profileId,
+        lastChecked: new Date(),
+        isValid: response !== null && !response.error,
+        expiresIn: response?.session?.expiresIn,
+      };
+
+      this.sessions.set(profileId, health);
+      await this.client.sessions.destroy(session.id, { saveProfile: true });
+      return health;
+    } catch {
+      const health: SessionHealth = {
+        profileId,
+        lastChecked: new Date(),
+        isValid: false,
+      };
+      this.sessions.set(profileId, health);
+      await this.client.sessions.destroy(session.id);
+      return health;
+    }
+  }
+
+  // Refresh sessions that are about to expire
+  async refreshExpiring(thresholdSeconds: number = 3600) {
+    for (const [profileId, health] of this.sessions) {
+      if (health.expiresIn && health.expiresIn < thresholdSeconds) {
+        console.log(`Refreshing session for profile ${profileId}`);
+        const session = await this.client.sessions.create({ profileId, stealth: 'max' });
+        const browser = await chromium.connectOverCDP(session.cdpUrl);
+        const page = browser.contexts()[0].pages()[0];
+
+        try {
+          // Navigate to trigger session refresh
+          await page.goto('https://app.example.com/dashboard');
+          await page.waitForTimeout(5000);
+          await this.client.sessions.destroy(session.id, { saveProfile: true });
+          console.log(`Session refreshed for ${profileId}`);
+        } catch {
+          await this.client.sessions.destroy(session.id);
+          console.error(`Failed to refresh session for ${profileId}`);
+        }
+      }
+    }
+  }
+}
+```
+
+## Team Session Sharing
+
+```typescript
+// Share a session profile with team members
+async function shareProfile(
+  profileId: string,
+  teamId: string
+): Promise<void> {
+  await client.profiles.share(profileId, {
+    teamId,
+    permissions: ['read', 'use'], // Can use but not modify
+  });
+}
+
+// Use a shared profile
+async function useSharedProfile(
+  profileId: string,
+  task: (page: any) => Promise<void>
+) {
+  // Acquire lock to prevent concurrent use
+  const lock = await client.profiles.acquireLock(profileId, {
+    timeout: 60, // Wait up to 60s for lock
+  });
+
+  const session = await client.sessions.create({
+    profileId,
+    stealth: 'max',
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  try {
+    await task(page);
+    await client.sessions.destroy(session.id, { saveProfile: true });
+  } finally {
+    await client.profiles.releaseLock(lock.id);
+  }
+}
+```
+
+## Key Takeaways
+
+- **Always save on destroy** — Use `saveProfile: true` when ending sessions
+- **Check session validity** — Verify login state before starting work
+- **Refresh proactively** — Don't wait for cookies to expire
+- **Lock shared sessions** — Prevent concurrent modifications
+- **Export formats** — JSON for programmatic use, Netscape for CLI tools
+- **Sticky proxies** — Same IP on every restore prevents security challenges
+- **Merge cookies on import** — Don't overwrite, merge to preserve state

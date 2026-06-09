@@ -1,0 +1,278 @@
+---
+title: Visual Monitoring & Screenshot Diffing
+description: "Monitor website changes with automated screenshots and visual diffs"
+sidebarTitle: "Visual Monitoring"
+---
+
+# Visual Monitoring & Screenshot Diffing
+
+Monitor websites for visual changes, detect downtime, and track competitor updates using scheduled stealth screenshots and pixel-level comparisons.
+
+## The Challenge
+
+Visual monitoring requires:
+- Consistent browser environments for comparable screenshots
+- Bypassing bot detection that blocks monitoring tools
+- Multi-device and multi-geo screenshots
+- Efficient diff detection to avoid false positives
+- Scheduled execution with alerting
+
+## Basic Screenshot Monitoring
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium } from 'playwright';
+import * as fs from 'fs';
+import * as path from 'path';
+import { createCanvas, loadImage } from 'canvas';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+interface MonitorTarget {
+  url: string;
+  name: string;
+  selector?: string; // Optional: monitor specific element only
+  viewport?: { width: number; height: number };
+}
+
+async function captureScreenshot(target: MonitorTarget): Promise<Buffer> {
+  const session = await client.sessions.create({
+    stealth: 'max',
+    proxy: { type: 'residential', country: 'US' },
+    viewport: target.viewport || { width: 1920, height: 1080 },
+  });
+
+  const browser = await chromium.connectOverCDP(session.cdpUrl);
+  const page = browser.contexts()[0].pages()[0];
+
+  try {
+    await page.goto(target.url, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(3000); // Wait for dynamic content
+
+    // Dismiss cookie banners
+    const cookieBanner = await page.$('button:has-text("Accept"), [id*="cookie"] button');
+    if (cookieBanner) {
+      await cookieBanner.click();
+      await page.waitForTimeout(1000);
+    }
+
+    let screenshot: Buffer;
+    if (target.selector) {
+      const element = await page.$(target.selector);
+      if (!element) throw new Error(`Selector not found: ${target.selector}`);
+      screenshot = await element.screenshot();
+    } else {
+      screenshot = await page.screenshot({ fullPage: true });
+    }
+
+    return screenshot;
+  } finally {
+    await client.sessions.destroy(session.id);
+  }
+}
+```
+
+## Pixel-Level Diff Detection
+
+```typescript
+interface DiffResult {
+  changed: boolean;
+  diffPercentage: number;
+  diffImagePath?: string;
+}
+
+async function compareScreenshots(
+  current: Buffer,
+  previous: Buffer,
+  outputPath: string
+): Promise<DiffResult> {
+  const img1 = await loadImage(current);
+  const img2 = await loadImage(previous);
+
+  // Resize to same dimensions for comparison
+  const width = Math.max(img1.width, img2.width);
+  const height = Math.max(img1.height, img2.height);
+
+  const canvas1 = createCanvas(width, height);
+  const ctx1 = canvas1.getContext('2d');
+  ctx1.drawImage(img1, 0, 0);
+  const data1 = ctx1.getImageData(0, 0, width, height).data;
+
+  const canvas2 = createCanvas(width, height);
+  const ctx2 = canvas2.getContext('2d');
+  ctx2.drawImage(img2, 0, 0);
+  const data2 = ctx2.getImageData(0, 0, width, height).data;
+
+  // Create diff image
+  const diffCanvas = createCanvas(width, height);
+  const diffCtx = diffCanvas.getContext('2d');
+  const diffData = diffCtx.createImageData(width, height);
+
+  let changedPixels = 0;
+  const totalPixels = width * height;
+  const threshold = 30; // Color difference threshold
+
+  for (let i = 0; i < data1.length; i += 4) {
+    const rDiff = Math.abs(data1[i] - data2[i]);
+    const gDiff = Math.abs(data1[i + 1] - data2[i + 1]);
+    const bDiff = Math.abs(data1[i + 2] - data2[i + 2]);
+
+    if (rDiff + gDiff + bDiff > threshold) {
+      changedPixels++;
+      // Highlight change in red
+      diffData.data[i] = 255;
+      diffData.data[i + 1] = 0;
+      diffData.data[i + 2] = 0;
+      diffData.data[i + 3] = 200;
+    } else {
+      // Keep original pixel (dimmed)
+      diffData.data[i] = data1[i] * 0.3;
+      diffData.data[i + 1] = data1[i + 1] * 0.3;
+      diffData.data[i + 2] = data1[i + 2] * 0.3;
+      diffData.data[i + 3] = 255;
+    }
+  }
+
+  diffCtx.putImageData(diffData, 0, 0);
+
+  const diffPercentage = (changedPixels / totalPixels) * 100;
+  const changed = diffPercentage > 0.5; // >0.5% change = significant
+
+  if (changed) {
+    const diffBuffer = diffCanvas.toBuffer('image/png');
+    fs.writeFileSync(outputPath, diffBuffer);
+  }
+
+  return {
+    changed,
+    diffPercentage: Math.round(diffPercentage * 100) / 100,
+    diffImagePath: changed ? outputPath : undefined,
+  };
+}
+```
+
+## Monitoring Scheduler
+
+```typescript
+interface MonitorConfig {
+  targets: MonitorTarget[];
+  intervalMinutes: number;
+  screenshotDir: string;
+  onChangeDetected: (target: MonitorTarget, diff: DiffResult) => Promise<void>;
+}
+
+class VisualMonitor {
+  private config: MonitorConfig;
+
+  constructor(config: MonitorConfig) {
+    this.config = config;
+    fs.mkdirSync(config.screenshotDir, { recursive: true });
+  }
+
+  async runCheck() {
+    for (const target of this.config.targets) {
+      try {
+        const current = await captureScreenshot(target);
+        const currentPath = path.join(
+          this.config.screenshotDir,
+          `${target.name}-current.png`
+        );
+        const previousPath = path.join(
+          this.config.screenshotDir,
+          `${target.name}-previous.png`
+        );
+
+        // Compare with previous if exists
+        if (fs.existsSync(currentPath)) {
+          const previous = fs.readFileSync(currentPath);
+          const diffPath = path.join(
+            this.config.screenshotDir,
+            `${target.name}-diff-${Date.now()}.png`
+          );
+
+          const diff = await compareScreenshots(current, previous, diffPath);
+
+          if (diff.changed) {
+            console.log(
+              `Change detected on ${target.name}: ${diff.diffPercentage}% changed`
+            );
+            await this.config.onChangeDetected(target, diff);
+          }
+
+          // Archive previous
+          fs.renameSync(currentPath, previousPath);
+        }
+
+        // Save current
+        fs.writeFileSync(currentPath, current);
+      } catch (error) {
+        console.error(`Monitor failed for ${target.name}:`, error);
+      }
+    }
+  }
+
+  start() {
+    // Run immediately
+    this.runCheck();
+
+    // Then on interval
+    setInterval(
+      () => this.runCheck(),
+      this.config.intervalMinutes * 60 * 1000
+    );
+  }
+}
+
+// Usage
+const monitor = new VisualMonitor({
+  targets: [
+    { url: 'https://competitor.com', name: 'competitor-home' },
+    { url: 'https://competitor.com/pricing', name: 'competitor-pricing' },
+    { url: 'https://mysite.com', name: 'my-site-home' },
+  ],
+  intervalMinutes: 60,
+  screenshotDir: './monitoring/screenshots',
+  onChangeDetected: async (target, diff) => {
+    // Send alert (Slack, email, webhook, etc.)
+    console.log(`ALERT: ${target.name} changed by ${diff.diffPercentage}%`);
+    console.log(`Diff image: ${diff.diffImagePath}`);
+  },
+});
+
+monitor.start();
+```
+
+## Multi-Device Monitoring
+
+```typescript
+const viewports = [
+  { name: 'desktop', width: 1920, height: 1080 },
+  { name: 'tablet', width: 768, height: 1024 },
+  { name: 'mobile', width: 375, height: 812 },
+];
+
+async function multiDeviceCapture(url: string) {
+  const captures = await Promise.all(
+    viewports.map(async (vp) => {
+      const screenshot = await captureScreenshot({
+        url,
+        name: `page-${vp.name}`,
+        viewport: { width: vp.width, height: vp.height },
+      });
+      return { device: vp.name, screenshot };
+    })
+  );
+
+  return captures;
+}
+```
+
+## Key Takeaways
+
+- **Consistent environments** — Same viewport and browser config for comparable screenshots
+- **Wait for full render** — 3-5s after networkidle for dynamic content
+- **Dismiss overlays** — Cookie banners, popups affect screenshots
+- **Threshold-based diffs** — Ignore <0.5% change (anti-aliasing, timestamps)
+- **Element-level monitoring** — Use selectors to track specific components
+- **Multi-device coverage** — Desktop, tablet, mobile viewports
+- **Archive history** — Keep previous screenshots for trend analysis

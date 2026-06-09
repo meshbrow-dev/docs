@@ -1,0 +1,274 @@
+---
+title: Ad Verification & Compliance
+description: "Verify ad placements and compliance across geographies"
+sidebarTitle: "Ad Verification"
+---
+
+# Ad Verification & Compliance
+
+Verify that ads are displaying correctly across different regions, detect fraud, and ensure brand safety using geo-distributed stealth browsers.
+
+## The Challenge
+
+Ad verification requires:
+- Seeing pages as real users in specific locations see them
+- Detecting malicious ads, redirects, and cloaking
+- Screenshotting actual ad placements for proof
+- Checking across dozens of geos simultaneously
+
+## Multi-Geo Ad Verification
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium, Page } from 'playwright';
+import * as fs from 'fs';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+interface AdVerification {
+  url: string;
+  country: string;
+  screenshot: string; // file path
+  ads: AdPlacement[];
+  redirects: string[];
+  loadTime: number;
+  brandSafe: boolean;
+}
+
+interface AdPlacement {
+  selector: string;
+  dimensions: { width: number; height: number };
+  visible: boolean;
+  src?: string;
+  advertiser?: string;
+}
+
+async function verifyAds(
+  urls: string[],
+  countries: string[]
+): Promise<AdVerification[]> {
+  const results: AdVerification[] = [];
+
+  // Launch geo-distributed fleet
+  const fleet = await client.fleet.create({
+    name: `ad-verify-${Date.now()}`,
+    count: countries.length,
+    config: {
+      stealth: 'max',
+      timeout: 300,
+      recording: { screenshots: true, har: true },
+    },
+    distribution: {
+      countries,
+      proxyTypes: ['residential'],
+    },
+  });
+
+  const ready = await client.fleet.waitReady(fleet.id);
+
+  const tasks = ready.sessions.map(async (session, i) => {
+    const country = countries[i];
+    const browser = await chromium.connectOverCDP(session.cdpUrl);
+    const page = browser.contexts()[0].pages()[0];
+
+    try {
+      for (const url of urls) {
+        const result = await verifyPageAds(page, url, country);
+        results.push(result);
+        await page.waitForTimeout(2000 + Math.random() * 3000);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
+  await Promise.all(tasks);
+  await client.fleet.destroy(fleet.id);
+
+  return results;
+}
+
+async function verifyPageAds(
+  page: Page,
+  url: string,
+  country: string
+): Promise<AdVerification> {
+  const redirects: string[] = [];
+  const startTime = Date.now();
+
+  // Track redirects
+  page.on('response', (response) => {
+    if (response.status() >= 300 && response.status() < 400) {
+      redirects.push(response.headers()['location'] || response.url());
+    }
+  });
+
+  await page.goto(url, { waitUntil: 'networkidle' });
+  const loadTime = Date.now() - startTime;
+
+  // Wait for ads to render
+  await page.waitForTimeout(3000);
+
+  // Take full-page screenshot
+  const screenshotPath = `screenshots/ad-verify-${country}-${Date.now()}.png`;
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+
+  // Find all ad elements
+  const ads = await page.evaluate(() => {
+    const adSelectors = [
+      'iframe[id*="google_ads"]',
+      'iframe[src*="doubleclick"]',
+      'div[id*="ad-"]',
+      'div[class*="ad-slot"]',
+      'div[data-ad]',
+      'ins.adsbygoogle',
+    ];
+
+    const results: Array<{
+      selector: string;
+      dimensions: { width: number; height: number };
+      visible: boolean;
+      src?: string;
+    }> = [];
+
+    for (const selector of adSelectors) {
+      const elements = document.querySelectorAll(selector);
+      elements.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        results.push({
+          selector,
+          dimensions: { width: rect.width, height: rect.height },
+          visible: rect.width > 0 && rect.height > 0,
+          src: (el as HTMLIFrameElement).src || undefined,
+        });
+      });
+    }
+
+    return results;
+  });
+
+  // Brand safety check - look for inappropriate content
+  const brandSafe = await page.evaluate(() => {
+    const text = document.body.innerText.toLowerCase();
+    const unsafeKeywords = ['gambling', 'adult', 'weapons', 'drugs'];
+    return !unsafeKeywords.some((kw) => text.includes(kw));
+  });
+
+  return {
+    url,
+    country,
+    screenshot: screenshotPath,
+    ads,
+    redirects,
+    loadTime,
+    brandSafe,
+  };
+}
+```
+
+## Ad Fraud Detection
+
+```typescript
+async function detectAdFraud(page: Page): Promise<{
+  cloaking: boolean;
+  hiddenAds: number;
+  suspiciousRedirects: string[];
+  maliciousScripts: string[];
+}> {
+  // Detect cloaking (different content for bots vs humans)
+  const cloaking = await page.evaluate(() => {
+    // Check if content changes based on visibility
+    const hiddenContent = document.querySelectorAll('[style*="display:none"]');
+    const visibleText = document.body.innerText.length;
+    return hiddenContent.length > 20 || visibleText < 100;
+  });
+
+  // Detect hidden/invisible ads (ad fraud indicator)
+  const hiddenAds = await page.evaluate(() => {
+    const adFrames = document.querySelectorAll('iframe[src*="ad"]');
+    let hidden = 0;
+    adFrames.forEach((frame) => {
+      const rect = frame.getBoundingClientRect();
+      const style = window.getComputedStyle(frame);
+      if (
+        rect.width < 2 || rect.height < 2 ||
+        style.opacity === '0' ||
+        style.visibility === 'hidden'
+      ) {
+        hidden++;
+      }
+    });
+    return hidden;
+  });
+
+  // Check for suspicious redirect chains
+  const suspiciousRedirects: string[] = [];
+  page.on('response', (response) => {
+    const url = response.url();
+    if (
+      response.status() >= 300 &&
+      response.status() < 400 &&
+      (url.includes('click') || url.includes('redirect') || url.includes('track'))
+    ) {
+      suspiciousRedirects.push(url);
+    }
+  });
+
+  // Detect malicious scripts
+  const maliciousScripts = await page.evaluate(() => {
+    const scripts = Array.from(document.querySelectorAll('script[src]'));
+    const suspicious = scripts
+      .map((s) => (s as HTMLScriptElement).src)
+      .filter((src) =>
+        src.includes('crypto') ||
+        src.includes('miner') ||
+        src.includes('inject')
+      );
+    return suspicious;
+  });
+
+  return { cloaking, hiddenAds, suspiciousRedirects, maliciousScripts };
+}
+```
+
+## Scheduled Verification Report
+
+```typescript
+async function generateVerificationReport(
+  publisherUrls: string[],
+  geos: string[]
+) {
+  const verifications = await verifyAds(publisherUrls, geos);
+
+  const report = {
+    timestamp: new Date().toISOString(),
+    totalChecks: verifications.length,
+    summary: {
+      adsFound: verifications.reduce((acc, v) => acc + v.ads.length, 0),
+      hiddenAds: verifications.reduce(
+        (acc, v) => acc + v.ads.filter((a) => !a.visible).length, 0
+      ),
+      avgLoadTime: verifications.reduce((acc, v) => acc + v.loadTime, 0) / verifications.length,
+      brandUnsafe: verifications.filter((v) => !v.brandSafe).length,
+      withRedirects: verifications.filter((v) => v.redirects.length > 0).length,
+    },
+    details: verifications,
+  };
+
+  fs.writeFileSync(
+    `reports/ad-verification-${Date.now()}.json`,
+    JSON.stringify(report, null, 2)
+  );
+
+  return report;
+}
+```
+
+## Key Takeaways
+
+- **Residential proxies only** — Ad networks block datacenter IPs
+- **Multi-geo fleet** — Verify ads appear correctly in all target markets
+- **Wait for ad rendering** — Ads load asynchronously, wait 3-5s after page load
+- **Screenshot everything** — Visual proof for compliance reporting
+- **Detect fraud patterns** — Hidden iframes, cloaking, suspicious redirects
+- **HAR recording** — Capture full network traffic for audit trails

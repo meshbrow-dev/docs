@@ -1,0 +1,167 @@
+---
+title: E-Commerce Price Monitoring
+description: "Monitor competitor prices across regions without detection"
+sidebarTitle: "Price Monitoring"
+---
+
+# E-Commerce Price Monitoring
+
+Monitor product prices across different geographic regions using a fleet of stealth browsers with residential proxies.
+
+## The Challenge
+
+E-commerce sites show different prices based on location, use anti-bot to block scrapers, and frequently change their DOM structure. You need:
+- Multiple geo-located browsers
+- Persistent sessions to avoid rate limits
+- Anti-detection to bypass bot protection
+
+## Full Implementation
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium, Page } from 'playwright';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+interface PriceResult {
+  country: string;
+  productUrl: string;
+  price: string;
+  currency: string;
+  inStock: boolean;
+  scrapedAt: string;
+}
+
+// Target countries for price comparison
+const REGIONS = ['US', 'GB', 'DE', 'FR', 'JP', 'AU'];
+
+async function monitorPrices(productUrls: string[]): Promise<PriceResult[]> {
+  const results: PriceResult[] = [];
+
+  // Launch a fleet with geo-distributed browsers
+  const fleet = await client.fleet.create({
+    name: `price-monitor-${Date.now()}`,
+    count: REGIONS.length,
+    config: {
+      stealth: 'max',
+      timeout: 600,
+    },
+    distribution: {
+      countries: REGIONS,
+      proxyTypes: ['residential'],
+    },
+  });
+
+  // Wait for all browsers to be ready
+  const ready = await client.fleet.waitReady(fleet.id);
+
+  // Connect to each browser
+  const tasks = ready.sessions.map(async (session, i) => {
+    const browser = await chromium.connectOverCDP(session.cdpUrl);
+    const page = browser.contexts()[0].pages()[0];
+    const country = REGIONS[i];
+
+    try {
+      for (const url of productUrls) {
+        const result = await scrapePricePage(page, url, country);
+        results.push(result);
+
+        // Human-like delay between products
+        await page.waitForTimeout(2000 + Math.random() * 3000);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
+  await Promise.all(tasks);
+  await client.fleet.destroy(fleet.id);
+
+  return results;
+}
+
+async function scrapePricePage(
+  page: Page,
+  url: string,
+  country: string
+): Promise<PriceResult> {
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+
+  // Wait for price element (adjust selectors for your target site)
+  await page.waitForSelector('[data-testid="price"], .price, .product-price', {
+    timeout: 10000,
+  });
+
+  const price = await page.evaluate(() => {
+    const priceEl =
+      document.querySelector('[data-testid="price"]') ||
+      document.querySelector('.price') ||
+      document.querySelector('.product-price');
+    return priceEl?.textContent?.trim() || 'N/A';
+  });
+
+  const inStock = await page.evaluate(() => {
+    const outOfStock = document.querySelector(
+      '.out-of-stock, [data-testid="out-of-stock"]'
+    );
+    return !outOfStock;
+  });
+
+  // Extract currency from price string
+  const currencyMatch = price.match(/[$£€¥A]/);
+  const currency = currencyMatch ? currencyMatch[0] : 'Unknown';
+
+  return {
+    country,
+    productUrl: url,
+    price,
+    currency,
+    inStock,
+    scrapedAt: new Date().toISOString(),
+  };
+}
+
+// Run the monitor
+const prices = await monitorPrices([
+  'https://shop.example.com/product/widget-pro',
+  'https://shop.example.com/product/widget-ultra',
+]);
+
+console.table(prices);
+```
+
+## With Scheduling (Cron)
+
+```typescript
+import cron from 'node-cron';
+
+// Run every hour
+cron.schedule('0 * * * *', async () => {
+  console.log(`[${new Date().toISOString()}] Starting price check...`);
+
+  const prices = await monitorPrices(PRODUCT_URLS);
+
+  // Detect price changes
+  for (const result of prices) {
+    const previous = await db.getLastPrice(result.productUrl, result.country);
+    if (previous && previous.price !== result.price) {
+      await sendAlert({
+        product: result.productUrl,
+        country: result.country,
+        oldPrice: previous.price,
+        newPrice: result.price,
+      });
+    }
+  }
+
+  // Store results
+  await db.insertPrices(prices);
+});
+```
+
+## Key Takeaways
+
+- **Use residential proxies** — e-commerce sites aggressively block datacenter IPs
+- **Geo-distribute with fleet** — compare prices across markets simultaneously
+- **Add human delays** — 2-5s between page loads prevents rate limiting
+- **Handle DOM variance** — use multiple fallback selectors
