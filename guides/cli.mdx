@@ -22,19 +22,26 @@ The `meshbrow` CLI lets you manage browser sessions, profiles, and fleets direct
     curl -sSL https://get.meshbrow.dev | sh
     ```
   </Tab>
+  <Tab title="Go Install">
+    ```bash
+    go install github.com/meshbrow-dev/meshbrow-cli@latest
+    ```
+  </Tab>
   <Tab title="From Source">
     ```bash
-    git clone https://github.com/meshbrow-dev/meshbrow-backend.git
-    cd meshbrow-backend
+    git clone https://github.com/meshbrow-dev/meshbrow-cli.git
+    cd meshbrow-cli
     make install
     ```
   </Tab>
-  <Tab title="Go Install">
-    ```bash
-    go install github.com/meshbrow-dev/meshbrow-backend/cmd/cli@latest
-    ```
-  </Tab>
 </Tabs>
+
+Verify the installation:
+
+```bash
+meshbrow version
+# meshbrow v0.1.0 (darwin/arm64)
+```
 
 ## Authentication
 

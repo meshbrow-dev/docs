@@ -5,47 +5,88 @@ description: "Launch your first stealth browser in under 2 minutes"
 
 # Quickstart
 
-Get a managed stealth browser running in minutes. This guide uses the TypeScript SDK, but you can also use the REST API directly.
+Get a managed stealth browser running in minutes.
 
-## 1. Get an API Key
+## 1. Install
+
+<Tabs>
+  <Tab title="CLI (Homebrew)">
+    ```bash
+    brew tap meshbrow-dev/tap
+    brew install meshbrow
+    ```
+
+    Verify the installation:
+
+    ```bash
+    meshbrow version
+    # meshbrow v0.1.0 (darwin/arm64)
+    ```
+  </Tab>
+  <Tab title="TypeScript SDK">
+    ```bash
+    npm install @meshbrow/sdk
+    ```
+  </Tab>
+  <Tab title="CLI (Linux)">
+    ```bash
+    curl -sSL https://get.meshbrow.dev | sh
+    ```
+  </Tab>
+</Tabs>
+
+## 2. Authenticate
 
 Sign up at [app.meshbrow.dev](https://app.meshbrow.dev/signup) to get your API key.
 
-## 2. Install the SDK
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    meshbrow auth login --key mb_live_your_key_here
+    ```
 
-<CodeGroup>
+    <Tip>
+      Alternatively, set the `MESHBROW_API_KEY` environment variable — useful in CI/CD.
 
-```bash npm
-npm install @meshbrow/sdk
-```
+      ```bash
+      export MESHBROW_API_KEY=mb_live_your_key_here
+      ```
+    </Tip>
+  </Tab>
+  <Tab title="TypeScript SDK">
+    ```typescript
+    import { Meshbrow } from '@meshbrow/sdk';
 
-```bash pnpm
-pnpm add @meshbrow/sdk
-```
-
-```bash yarn
-yarn add @meshbrow/sdk
-```
-
-</CodeGroup>
+    const client = new Meshbrow({ apiKey: 'mb_live_...' });
+    ```
+  </Tab>
+</Tabs>
 
 ## 3. Launch a Session
 
-```typescript
-import { Meshbrow } from '@meshbrow/sdk';
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    meshbrow sessions create --proxy residential --country US --stealth max
+    # ✓ Session created: sess_abc123
+    #   CDP URL: wss://api.meshbrow.dev/cdp/sess_abc123?token=...
+    #   Proxy:   US residential
+    #   Stealth: max
+    ```
+  </Tab>
+  <Tab title="TypeScript SDK">
+    ```typescript
+    const session = await client.sessions.create({
+      proxy: { type: 'residential', country: 'US' },
+      stealth: 'max',
+      fingerprint: 'auto',
+    });
 
-const client = new Meshbrow({ apiKey: 'mb_live_...' });
-
-// Launch a stealth browser with a US residential proxy
-const session = await client.sessions.create({
-  proxy: { type: 'residential', country: 'US' },
-  stealth: 'max',
-  fingerprint: 'auto', // Generate a realistic fingerprint
-});
-
-console.log(`Session: ${session.id}`);
-console.log(`CDP URL: ${session.cdpUrl}`);
-```
+    console.log(`Session: ${session.id}`);
+    console.log(`CDP URL: ${session.cdpUrl}`);
+    ```
+  </Tab>
+</Tabs>
 
 ## 4. Connect with Playwright
 
@@ -65,15 +106,31 @@ await page.screenshot({ path: 'result.png' });
 console.log('Anti-detect test passed!');
 ```
 
+Or via CLI:
+
+```bash
+meshbrow actions navigate --session sess_abc123 --url https://nowsecure.nl
+meshbrow actions screenshot --session sess_abc123 --output result.png
+```
+
 ## 5. Destroy the Session
 
-```typescript
-await client.sessions.destroy(session.id);
-```
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    meshbrow sessions destroy sess_abc123
+    ```
+  </Tab>
+  <Tab title="TypeScript SDK">
+    ```typescript
+    await client.sessions.destroy(session.id);
+    ```
+  </Tab>
+</Tabs>
 
 ## Full Example
 
-Here's the complete script:
+Here's the complete script with the TypeScript SDK:
 
 ```typescript
 import { Meshbrow } from '@meshbrow/sdk';
@@ -127,16 +184,17 @@ curl -X POST https://api.meshbrow.dev/v1/sessions \
   }'
 
 # Response:
-# { "id": "ses_abc123", "cdpUrl": "wss://api.meshbrow.dev/cdp/ses_abc123?token=..." }
+# { "id": "sess_abc123", "cdpUrl": "wss://api.meshbrow.dev/cdp/sess_abc123?token=..." }
 
 # Destroy when done
-curl -X DELETE https://api.meshbrow.dev/v1/sessions/ses_abc123 \
+curl -X DELETE https://api.meshbrow.dev/v1/sessions/sess_abc123 \
   -H "Authorization: Bearer mb_live_..."
 ```
 
 ## Next Steps
 
-- [CLI Guide](/guides/cli) — Manage sessions from your terminal
+- [CLI Reference](/guides/cli) — Full command reference for the `meshbrow` CLI
 - [Playwright Guide](/guides/playwright) — Advanced Playwright patterns
+- [MCP & Agents](/guides/mcp-agents) — Use with Claude, Copilot, and AI agents
 - [Session Profiles](/concepts/persistence) — Reuse cookies and login states
 - [Proxy Selection](/guides/proxy-selection) — Choose the right proxy type
