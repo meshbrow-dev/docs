@@ -91,6 +91,7 @@
         "guides/puppeteer",
         "guides/python",
         "guides/mcp-agents",
+        "guides/cli",
         "guides/anti-detection",
         "guides/proxy-selection"
       ]

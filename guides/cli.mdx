@@ -1,0 +1,321 @@
+---
+title: CLI Reference
+description: "Install and use the meshbrow command-line tool"
+sidebarTitle: "CLI"
+---
+
+# CLI Reference
+
+The `meshbrow` CLI lets you manage browser sessions, profiles, and fleets directly from your terminal.
+
+## Installation
+
+<Tabs>
+  <Tab title="Homebrew (macOS/Linux)">
+    ```bash
+    brew tap meshbrow-dev/tap
+    brew install meshbrow
+    ```
+  </Tab>
+  <Tab title="Shell Script">
+    ```bash
+    curl -sSL https://get.meshbrow.dev | sh
+    ```
+  </Tab>
+  <Tab title="From Source">
+    ```bash
+    git clone https://github.com/meshbrow-dev/meshbrow-backend.git
+    cd meshbrow-backend
+    make install
+    ```
+  </Tab>
+  <Tab title="Go Install">
+    ```bash
+    go install github.com/meshbrow-dev/meshbrow-backend/cmd/cli@latest
+    ```
+  </Tab>
+</Tabs>
+
+## Authentication
+
+Before using the CLI, authenticate with your API key:
+
+```bash
+meshbrow auth login --key mb_live_your_key_here
+```
+
+This saves your key to `~/.meshbrow.yaml`. You can also use environment variables:
+
+```bash
+export MESHBROW_API_KEY=mb_live_your_key_here
+```
+
+Check your auth status:
+
+```bash
+meshbrow auth status
+```
+
+## Sessions
+
+### Create a Session
+
+```bash
+# Basic session with max stealth
+meshbrow sessions create
+
+# With proxy configuration
+meshbrow sessions create --stealth max --proxy-type residential --proxy-country US
+
+# With custom viewport
+meshbrow sessions create --viewport 1366x768 --locale en-GB --timezone Europe/London
+
+# From a saved profile
+meshbrow sessions create --profile prof_abc123
+```
+
+Output:
+```
+✓ Session created
+
+  ID:       sess_a1b2c3d4e5f6
+  Status:   running
+  CDP:      wss://api.meshbrow.dev/cdp/sess_a1b2c3d4e5f6?token=xxx
+  Expires:  2026-06-10T12:00:00Z
+
+  Connect with Playwright:
+    const browser = await chromium.connectOverCDP('wss://api.meshbrow.dev/cdp/sess_a1b2c3d4e5f6?token=xxx');
+```
+
+### List Sessions
+
+```bash
+# Table format
+meshbrow sessions list
+
+# JSON format (for scripting)
+meshbrow sessions list -o json
+```
+
+### Get Session Details
+
+```bash
+meshbrow sessions get sess_a1b2c3d4e5f6
+```
+
+### Destroy a Session
+
+```bash
+meshbrow sessions destroy sess_a1b2c3d4e5f6
+
+# Aliases
+meshbrow sessions rm sess_a1b2c3d4e5f6
+meshbrow sessions kill sess_a1b2c3d4e5f6
+```
+
+## Profiles
+
+### Create a Profile
+
+```bash
+meshbrow profiles create --name "my-scraper" --platform Win32 --locale en-US
+
+# With proxy defaults
+meshbrow profiles create --name "eu-account" --proxy-type isp --proxy-country DE
+
+# With tags
+meshbrow profiles create --name "twitter-bot-1" --tags social,twitter
+```
+
+### List Profiles
+
+```bash
+meshbrow profiles list
+```
+
+### Delete a Profile
+
+```bash
+meshbrow profiles delete prof_abc123
+```
+
+## Fleet Management
+
+### Create a Fleet
+
+```bash
+# 10 sessions distributed across countries
+meshbrow fleet create --name "price-check" --count 10 --countries US,GB,DE,FR,JP
+
+# Custom configuration
+meshbrow fleet create --name "scrape-fleet" --count 5 --stealth max --proxy-type residential --timeout 60
+```
+
+### Check Fleet Status
+
+```bash
+meshbrow fleet status fleet_abc123
+```
+
+### Destroy a Fleet
+
+```bash
+meshbrow fleet destroy fleet_abc123
+```
+
+## Session Actions
+
+### Navigate
+
+```bash
+meshbrow navigate sess_a1b2c3d4e5f6 "https://example.com"
+
+# Wait for network idle
+meshbrow navigate sess_a1b2c3d4e5f6 "https://spa-app.com" --wait networkidle
+```
+
+### Screenshot
+
+```bash
+# Save to file
+meshbrow screenshot sess_a1b2c3d4e5f6 -f page.png
+
+# Full page
+meshbrow screenshot sess_a1b2c3d4e5f6 -f full.png --full-page
+
+# Pipe to another command
+meshbrow screenshot sess_a1b2c3d4e5f6 | open -f -a Preview
+```
+
+### Execute JavaScript
+
+```bash
+meshbrow exec sess_a1b2c3d4e5f6 "document.title"
+meshbrow exec sess_a1b2c3d4e5f6 "document.querySelectorAll('a').length"
+```
+
+## Cookies
+
+### Export Cookies
+
+```bash
+# JSON format
+meshbrow cookies export sess_a1b2c3d4e5f6 -f cookies.json
+
+# Netscape format (compatible with curl)
+meshbrow cookies export sess_a1b2c3d4e5f6 --format netscape -f cookies.txt
+```
+
+### Import Cookies
+
+```bash
+meshbrow cookies import sess_a1b2c3d4e5f6 cookies.json
+
+# Merge with existing
+meshbrow cookies import sess_a1b2c3d4e5f6 cookies.json --merge
+```
+
+## System Status
+
+```bash
+meshbrow status
+```
+
+Output:
+```
+Meshbrow Status
+
+  API:      healthy (https://api.meshbrow.dev)
+  Version:  1.2.3
+  Plan:     Pro
+
+  Usage:
+    Active sessions: 3
+    Today:           47
+    This month:      1,234 / 10,000
+```
+
+## Version
+
+```bash
+meshbrow version
+```
+
+## Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--api-key` | API key (overrides config/env) |
+| `--api-url` | API base URL (default: `https://api.meshbrow.dev`) |
+| `--config` | Config file path (default: `~/.meshbrow.yaml`) |
+| `-o, --output` | Output format: `text` or `json` |
+
+## Configuration File
+
+The CLI reads from `~/.meshbrow.yaml`:
+
+```yaml
+api_key: mb_live_your_key_here
+api_url: https://api.meshbrow.dev
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `MESHBROW_API_KEY` | API key |
+| `MESHBROW_API_URL` | API base URL |
+
+## Shell Completion
+
+Generate shell completions:
+
+```bash
+# Bash
+meshbrow completion bash > /etc/bash_completion.d/meshbrow
+
+# Zsh
+meshbrow completion zsh > "${fpath[1]}/_meshbrow"
+
+# Fish
+meshbrow completion fish > ~/.config/fish/completions/meshbrow.fish
+```
+
+## Scripting Examples
+
+### Create session and connect with Playwright
+
+```bash
+# Create and extract CDP URL
+CDP_URL=$(meshbrow sessions create -o json | jq -r '.cdp_endpoint')
+
+# Use in a Node.js script
+node -e "
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.connectOverCDP('$CDP_URL');
+  const page = browser.contexts()[0].pages()[0];
+  await page.goto('https://example.com');
+  console.log(await page.title());
+  await browser.close();
+})();
+"
+
+# Cleanup
+meshbrow sessions destroy $(meshbrow sessions list -o json | jq -r '.sessions[0].id')
+```
+
+### Batch screenshot multiple URLs
+
+```bash
+SESSION_ID=$(meshbrow sessions create -o json | jq -r '.id')
+
+for url in "https://example.com" "https://google.com" "https://github.com"; do
+  meshbrow navigate "$SESSION_ID" "$url" --wait networkidle
+  filename=$(echo "$url" | sed 's|https://||;s|/|-|g').png
+  meshbrow screenshot "$SESSION_ID" -f "$filename"
+  echo "Captured: $filename"
+done
+
+meshbrow sessions destroy "$SESSION_ID"
+```
