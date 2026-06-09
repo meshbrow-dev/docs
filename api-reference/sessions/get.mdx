@@ -1,0 +1,55 @@
+---
+title: Get Session
+api: GET /v1/sessions/{id}
+description: "Retrieve session status and details"
+---
+
+# Get Session
+
+Retrieve the current status and details of a browser session.
+
+<ParamField path="id" type="string" required>
+  The session ID (e.g., `ses_k8m2n4p6`).
+</ParamField>
+
+## Request
+
+```bash
+curl https://api.meshbrow.dev/v1/sessions/ses_k8m2n4p6 \
+  -H "Authorization: Bearer mb_live_..."
+```
+
+## Response
+
+```json 200
+{
+  "id": "ses_k8m2n4p6",
+  "status": "active",
+  "cdpUrl": "wss://api.meshbrow.dev/cdp/ses_k8m2n4p6?token=ct_abc123",
+  "proxy": {
+    "type": "residential",
+    "country": "US",
+    "ip": "104.xxx.xxx.xxx"
+  },
+  "fingerprint": {
+    "platform": "Win32",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)..."
+  },
+  "createdAt": "2026-10-27T14:00:00Z",
+  "expiresAt": "2026-10-27T14:30:00Z",
+  "metrics": {
+    "pagesVisited": 12,
+    "bytesTransferred": 4521890,
+    "cdpMessages": 847
+  }
+}
+```
+
+```json 404
+{
+  "error": {
+    "code": "not_found",
+    "message": "Session ses_k8m2n4p6 not found"
+  }
+}
+```

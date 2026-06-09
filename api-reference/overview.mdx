@@ -1,0 +1,91 @@
+---
+title: API Overview
+description: "Meshbrow REST API reference"
+---
+
+# API Reference
+
+The Meshbrow API is organized around REST. All requests use JSON and require Bearer token authentication.
+
+## Base URL
+
+```
+https://api.meshbrow.dev/v1
+```
+
+## Request Format
+
+```bash
+curl https://api.meshbrow.dev/v1/sessions \
+  -H "Authorization: Bearer mb_live_..." \
+  -H "Content-Type: application/json"
+```
+
+## Response Format
+
+All responses return JSON with consistent structure:
+
+**Success:**
+```json
+{
+  "id": "ses_abc123",
+  "status": "ready",
+  "cdpUrl": "wss://api.meshbrow.dev/cdp/ses_abc123?token=..."
+}
+```
+
+**Error:**
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "proxy.country must be a valid ISO 3166-1 alpha-2 code",
+    "field": "proxy.country"
+  }
+}
+```
+
+## HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| `200` | Success |
+| `201` | Created |
+| `400` | Invalid request parameters |
+| `401` | Invalid or missing API key |
+| `403` | Insufficient permissions |
+| `404` | Resource not found |
+| `429` | Rate limit exceeded |
+| `500` | Internal server error |
+
+## Pagination
+
+List endpoints support cursor-based pagination:
+
+```bash
+GET /v1/sessions?limit=20&cursor=ses_xyz789
+```
+
+Response includes pagination metadata:
+```json
+{
+  "items": [...],
+  "hasMore": true,
+  "nextCursor": "ses_next123"
+}
+```
+
+## Webhooks
+
+Configure webhooks to receive real-time notifications:
+
+- `session.created` — New session launched
+- `session.destroyed` — Session terminated
+- `session.failed` — Session crashed or timed out
+- `session.idle` — Session idle timeout approaching
+
+## SDKs
+
+- **TypeScript/Node.js**: `@meshbrow/sdk` ([npm](https://www.npmjs.com/package/@meshbrow/sdk))
+- **Python**: Coming soon
+- **Go**: Coming soon

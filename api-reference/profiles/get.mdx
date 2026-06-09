@@ -1,0 +1,46 @@
+---
+title: Get Profile
+api: GET /v1/profiles/{id}
+description: "Retrieve a session profile"
+---
+
+# Get Profile
+
+Retrieve a profile's configuration, cookies, and usage statistics.
+
+<ParamField path="id" type="string" required>
+  The profile ID.
+</ParamField>
+
+## Request
+
+```bash
+curl https://api.meshbrow.dev/v1/profiles/prof_x9y8z7w6 \
+  -H "Authorization: Bearer mb_live_..."
+```
+
+## Response
+
+```json 200
+{
+  "id": "prof_x9y8z7w6",
+  "name": "GitHub Bot",
+  "fingerprint": {
+    "platform": "MacIntel",
+    "locale": "en-US",
+    "timezone": "America/New_York"
+  },
+  "proxy": {
+    "type": "residential",
+    "country": "US",
+    "sticky": true
+  },
+  "tags": ["github", "scraping"],
+  "cookieCount": 24,
+  "storageOrigins": ["https://github.com", "https://api.github.com"],
+  "createdAt": "2026-10-27T14:00:00Z",
+  "updatedAt": "2026-10-28T09:15:00Z",
+  "lastUsedAt": "2026-10-28T09:15:00Z",
+  "usageCount": 47
+}
+```

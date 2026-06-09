@@ -1,0 +1,100 @@
+---
+title: Session Persistence
+description: "Save and restore browser state across sessions"
+---
+
+# Session Persistence
+
+Meshbrow persists browser state — cookies, localStorage, and login states — so you can maintain identity across multiple sessions without re-authenticating.
+
+## Profiles
+
+A **profile** is a named configuration that bundles:
+
+- Cookies (all domains)
+- LocalStorage (per-origin)
+- Fingerprint preferences
+- Proxy preferences
+- Usage metadata
+
+```typescript
+// Create a profile
+const profile = await client.profiles.create({
+  name: 'GitHub Bot',
+  fingerprint: { platform: 'MacIntel', timezone: 'America/New_York' },
+  proxy: { type: 'isp', country: 'US', sticky: true },
+});
+
+// Use profile in a session
+const session = await client.sessions.create({
+  profileId: profile.id,
+});
+```
+
+## Cookie Persistence
+
+Cookies are automatically saved when you destroy a session with `saveProfile: true`:
+
+```typescript
+// Session 1: Log in
+const session1 = await client.sessions.create({ profileId: 'prof_abc' });
+// ... perform login ...
+await client.sessions.destroy(session1.id, { saveProfile: true });
+
+// Session 2: Already logged in
+const session2 = await client.sessions.create({ profileId: 'prof_abc' });
+// Cookies restored — authenticated!
+```
+
+## Cookie Import/Export
+
+Transfer cookies to and from Meshbrow:
+
+```typescript
+// Export cookies (Netscape format for curl/wget compatibility)
+const cookies = await client.profiles.exportCookies('prof_abc', { format: 'netscape' });
+
+// Import cookies from JSON
+await client.profiles.importCookies('prof_abc', {
+  format: 'json',
+  data: [{ name: 'token', value: '...', domain: 'example.com', path: '/' }],
+});
+```
+
+Supported formats:
+- **JSON** — Standard structured format
+- **Netscape** — Compatible with curl, wget, browser extensions
+
+## Auto-Refresh
+
+Keep login sessions alive by periodically refreshing cookies:
+
+```typescript
+const session = await client.sessions.create({
+  profileId: 'prof_abc',
+  autoRefresh: {
+    domains: ['github.com', 'api.github.com'],
+    interval: 300, // Refresh every 5 minutes
+  },
+});
+```
+
+Meshbrow will periodically navigate to the domains to keep session cookies fresh, preventing silent logouts.
+
+## Team Sharing
+
+Share profiles across team members:
+
+```typescript
+await client.profiles.share('prof_abc', { teamId: 'team_xyz' });
+
+// Team members can now use this profile
+const session = await client.sessions.create({
+  profileId: 'prof_abc', // Shared profile
+});
+```
+
+Useful for:
+- Shared accounts that the whole team uses
+- Pre-authenticated states for CI/CD
+- Common configurations across team workflows

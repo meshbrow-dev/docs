@@ -1,0 +1,153 @@
+---
+title: Puppeteer Integration
+description: "Connect Puppeteer to Meshbrow stealth browsers"
+sidebarTitle: "Puppeteer"
+---
+
+# Puppeteer Integration
+
+Puppeteer connects to Meshbrow browsers via the standard CDP WebSocket endpoint.
+
+## Basic Connection
+
+```javascript
+const puppeteer = require('puppeteer-core');
+
+const browser = await puppeteer.connect({
+  browserWSEndpoint: 'wss://api.meshbrow.dev/cdp/ses_abc123?token=ct_...',
+});
+
+const pages = await browser.pages();
+const page = pages[0];
+
+await page.goto('https://example.com');
+console.log(await page.title());
+```
+
+## With the SDK
+
+```javascript
+const { Meshbrow } = require('@meshbrow/sdk');
+const puppeteer = require('puppeteer-core');
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY });
+
+const session = await client.sessions.create({
+  proxy: { type: 'residential', country: 'US' },
+  stealth: 'max',
+});
+
+const browser = await puppeteer.connect({
+  browserWSEndpoint: session.cdpUrl,
+});
+
+const page = (await browser.pages())[0];
+await page.goto('https://nowsecure.nl');
+
+// Take screenshot
+await page.screenshot({ path: 'stealth-test.png', fullPage: true });
+
+// Cleanup
+await browser.disconnect();
+await client.sessions.destroy(session.id);
+```
+
+## Intercepting Requests
+
+```javascript
+const page = (await browser.pages())[0];
+
+await page.setRequestInterception(true);
+page.on('request', (request) => {
+  // Block images and CSS for faster scraping
+  if (['image', 'stylesheet', 'font'].includes(request.resourceType())) {
+    request.abort();
+  } else {
+    request.continue();
+  }
+});
+
+await page.goto('https://example.com');
+```
+
+## Extracting Data
+
+```javascript
+const page = (await browser.pages())[0];
+await page.goto('https://example.com/products');
+
+const products = await page.evaluate(() => {
+  return Array.from(document.querySelectorAll('.product-card')).map((el) => ({
+    name: el.querySelector('.name')?.textContent?.trim(),
+    price: el.querySelector('.price')?.textContent?.trim(),
+    url: el.querySelector('a')?.href,
+  }));
+});
+
+console.log(JSON.stringify(products, null, 2));
+```
+
+## Using Cookies from Profiles
+
+```javascript
+const session = await client.sessions.create({
+  profileId: 'prof_github_bot',
+  stealth: 'max',
+});
+
+const browser = await puppeteer.connect({
+  browserWSEndpoint: session.cdpUrl,
+});
+
+const page = (await browser.pages())[0];
+// Navigate directly to authenticated page
+await page.goto('https://github.com/dashboard');
+// Already logged in from profile cookies!
+```
+
+## Session Recording
+
+```javascript
+const page = (await browser.pages())[0];
+
+// Start tracing
+await page.tracing.start({ path: 'trace.json', screenshots: true });
+
+await page.goto('https://example.com');
+await page.click('.button');
+
+await page.tracing.stop();
+```
+
+## Handling Dynamic Content
+
+```javascript
+const page = (await browser.pages())[0];
+await page.goto('https://example.com/infinite-scroll');
+
+// Scroll and wait for new content
+let previousHeight = 0;
+while (true) {
+  const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+  if (currentHeight === previousHeight) break;
+  previousHeight = currentHeight;
+
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(1500); // Wait for lazy loading
+}
+
+const allItems = await page.$$eval('.item', (els) =>
+  els.map((el) => el.textContent?.trim())
+);
+```
+
+## Tips
+
+<Warning>
+  Always call `browser.disconnect()` (not `browser.close()`) when done. 
+  Closing would kill the Meshbrow session. Use the SDK's `destroy()` method instead.
+</Warning>
+
+- Use `puppeteer-core` (not `puppeteer`) since the browser is remote
+- Set `defaultViewport: null` to use Meshbrow's configured viewport
+- Add `--disable-web-security` only in test mode, never in production

@@ -1,0 +1,75 @@
+---
+title: Fingerprints
+description: "How Meshbrow generates and manages browser fingerprints"
+---
+
+# Fingerprints
+
+A **fingerprint** is a unique set of browser properties that websites use to identify visitors. Meshbrow generates realistic, internally consistent fingerprints for each session.
+
+## What Gets Fingerprinted
+
+| Category | Properties |
+|----------|-----------|
+| **Canvas** | Unique pixel rendering noise |
+| **WebGL** | Vendor, renderer, shader precision |
+| **Audio** | AudioContext sample noise |
+| **Navigator** | platform, languages, hardwareConcurrency, deviceMemory |
+| **Screen** | Resolution, colorDepth, pixelRatio |
+| **Fonts** | Installed font list |
+| **Plugins** | Chrome PDF, Flash (legacy) |
+| **User-Agent** | Browser version, OS info |
+
+## Consistency
+
+Meshbrow ensures all fingerprint properties are internally consistent:
+
+- **OS match**: A `Win32` platform gets Windows fonts, Windows UA, DirectX WebGL
+- **Hardware match**: Low `hardwareConcurrency` (2) gets lower `deviceMemory` (4)
+- **Geo match**: US proxy gets `en-US` locale and `America/*` timezone
+- **Version match**: All Chrome version strings are identical across properties
+
+## Fingerprint Modes
+
+### Auto (Recommended)
+
+```typescript
+const session = await client.sessions.create({
+  fingerprint: 'auto',
+});
+```
+
+Generates a completely random, realistic fingerprint. Best for most use cases.
+
+### Custom
+
+```typescript
+const session = await client.sessions.create({
+  fingerprint: {
+    platform: 'MacIntel',
+    locale: 'en-US',
+    timezone: 'America/New_York',
+    viewport: { width: 1440, height: 900 },
+  },
+});
+```
+
+Override specific properties. Meshbrow fills in the rest consistently.
+
+### From Profile
+
+```typescript
+const session = await client.sessions.create({
+  profileId: 'prof_x9y8z7w6', // Uses profile's fingerprint prefs
+});
+```
+
+## Detection Tests
+
+Meshbrow fingerprints pass:
+
+- ✅ [CreepJS](https://abrahamjuliot.github.io/creepjs/) — Advanced fingerprinting
+- ✅ [FingerprintJS](https://fingerprintjs.github.io/fingerprintjs/) — Industry standard
+- ✅ [BotD](https://fingerprint.com/products/bot-detection/) — Bot detection
+- ✅ [nowsecure.nl](https://nowsecure.nl) — Stealth test
+- ✅ [sannysoft.com](https://bot.sannysoft.com) — Comprehensive checks

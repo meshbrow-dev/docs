@@ -1,0 +1,191 @@
+---
+title: MCP & AI Agent Integration
+description: "Use Meshbrow with AI agents via MCP tools"
+sidebarTitle: "MCP / Agents"
+---
+
+# MCP & AI Agent Integration
+
+Meshbrow provides native **Model Context Protocol (MCP)** tools, allowing AI agents (Claude, GPT, custom agents) to browse the web through stealth browsers without any anti-detection concerns.
+
+## What is MCP?
+
+MCP (Model Context Protocol) is a standard for connecting AI agents to external tools. Meshbrow's MCP server exposes browser operations as structured tools that any MCP-compatible agent can invoke.
+
+## Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `meshbrow_create_session` | Launch a new stealth browser |
+| `meshbrow_navigate` | Navigate to a URL |
+| `meshbrow_screenshot` | Capture the current page |
+| `meshbrow_extract_text` | Extract visible text content |
+| `meshbrow_extract_links` | Get all links on the page |
+| `meshbrow_click` | Click an element by selector |
+| `meshbrow_fill` | Fill a form field |
+| `meshbrow_wait` | Wait for an element or navigation |
+| `meshbrow_evaluate` | Run JavaScript in the page |
+| `meshbrow_destroy_session` | Clean up the browser session |
+
+## Setup with Claude Desktop
+
+Add to your Claude Desktop MCP config (`~/.config/claude/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "meshbrow": {
+      "command": "npx",
+      "args": ["@meshbrow/mcp-server"],
+      "env": {
+        "MESHBROW_API_KEY": "mb_live_..."
+      }
+    }
+  }
+}
+```
+
+## Setup with Custom Agents
+
+### TypeScript Agent
+
+```typescript
+import { MeshbrowMCP } from '@meshbrow/mcp-server';
+
+const mcp = new MeshbrowMCP({
+  apiKey: process.env.MESHBROW_API_KEY!,
+  defaultProxy: { type: 'residential', country: 'US' },
+  defaultStealth: 'max',
+});
+
+// Register tools with your agent framework
+const tools = mcp.getTools();
+// tools = [{ name: 'meshbrow_create_session', ... }, ...]
+```
+
+### Python Agent
+
+```python
+import subprocess
+import json
+
+# Start MCP server
+process = subprocess.Popen(
+    ["npx", "@meshbrow/mcp-server"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    env={"MESHBROW_API_KEY": "mb_live_..."},
+)
+
+# Send tool calls via JSON-RPC
+def call_tool(name, params):
+    request = json.dumps({
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {"name": name, "arguments": params},
+        "id": 1,
+    })
+    process.stdin.write(request.encode() + b"\n")
+    process.stdin.flush()
+    response = json.loads(process.stdout.readline())
+    return response["result"]
+```
+
+## Example: AI Agent Web Research
+
+Here's how an AI agent uses Meshbrow tools:
+
+```
+User: "Find the current price of Bitcoin on CoinGecko"
+
+Agent thinking: I need to browse CoinGecko. Let me use a stealth browser.
+
+Agent calls: meshbrow_create_session({ proxy: { type: "residential" } })
+→ Returns: { sessionId: "ses_abc123" }
+
+Agent calls: meshbrow_navigate({ url: "https://www.coingecko.com/en/coins/bitcoin" })
+→ Returns: { status: "loaded", title: "Bitcoin Price..." }
+
+Agent calls: meshbrow_extract_text({ selector: "[data-target='price.price']" })
+→ Returns: { text: "$67,432.12" }
+
+Agent calls: meshbrow_destroy_session({})
+→ Returns: { status: "destroyed" }
+
+Agent responds: "The current Bitcoin price on CoinGecko is $67,432.12"
+```
+
+## Tool Schemas
+
+### meshbrow_create_session
+
+```json
+{
+  "name": "meshbrow_create_session",
+  "description": "Launch a stealth browser session with anti-detection and proxy",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "proxy": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["residential", "datacenter", "isp", "mobile"] },
+          "country": { "type": "string", "description": "ISO country code" }
+        }
+      },
+      "stealth": { "type": "string", "enum": ["none", "standard", "max"], "default": "max" },
+      "profileId": { "type": "string", "description": "Load saved session profile" }
+    }
+  }
+}
+```
+
+### meshbrow_navigate
+
+```json
+{
+  "name": "meshbrow_navigate",
+  "description": "Navigate the browser to a URL",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "url": { "type": "string", "description": "URL to navigate to" },
+      "waitFor": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle"] }
+    },
+    "required": ["url"]
+  }
+}
+```
+
+### meshbrow_extract_text
+
+```json
+{
+  "name": "meshbrow_extract_text",
+  "description": "Extract text content from the page",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "selector": { "type": "string", "description": "CSS selector (optional, defaults to body)" },
+      "maxLength": { "type": "number", "description": "Max characters to return", "default": 5000 }
+    }
+  }
+}
+```
+
+## Best Practices for AI Agents
+
+<AccordionGroup>
+  <Accordion title="Reuse sessions across related tasks">
+    Don't create a new session for every page. Navigate within the same session when visiting related pages.
+  </Accordion>
+  <Accordion title="Use profiles for authenticated workflows">
+    Store login cookies in profiles so agents don't need to re-authenticate each time.
+  </Accordion>
+  <Accordion title="Always destroy sessions">
+    Include cleanup in your agent's error handling. Leaked sessions cost money and resources.
+  </Accordion>
+  <Accordion title="Prefer extract_text over screenshots">
+    Text extraction is faster and uses fewer tokens than screenshot-based approaches.
+  </Accordion>
+</AccordionGroup>

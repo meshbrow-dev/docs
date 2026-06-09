@@ -1,0 +1,77 @@
+---
+title: Create Fleet
+api: POST /v1/fleet
+description: "Launch multiple browser sessions as a fleet"
+---
+
+# Create Fleet
+
+Launch multiple browser sessions simultaneously with coordinated configuration.
+
+<ParamField body="name" type="string" required>
+  Fleet name for identification.
+</ParamField>
+
+<ParamField body="count" type="integer" required>
+  Number of sessions to launch (1-100).
+</ParamField>
+
+<ParamField body="config" type="object" required>
+  Shared session configuration applied to all browsers.
+  <Expandable title="properties">
+    <ParamField body="proxy" type="object">Proxy settings (same as session create).</ParamField>
+    <ParamField body="stealth" type="string" default="max">Anti-detection level.</ParamField>
+    <ParamField body="fingerprint" type="string" default="auto">Fingerprint mode.</ParamField>
+    <ParamField body="timeout" type="integer" default="1800">Session duration in seconds.</ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="distribution" type="object">
+  How to distribute sessions across geos.
+  <Expandable title="properties">
+    <ParamField body="countries" type="string[]">
+      Distribute evenly across these countries.
+    </ParamField>
+    <ParamField body="proxyTypes" type="string[]">
+      Mix of proxy types.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Request
+
+```bash
+curl -X POST https://api.meshbrow.dev/v1/fleet \
+  -H "Authorization: Bearer mb_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "price-check-fleet",
+    "count": 10,
+    "config": {
+      "stealth": "max",
+      "timeout": 600
+    },
+    "distribution": {
+      "countries": ["US", "GB", "DE", "FR", "JP"],
+      "proxyTypes": ["residential"]
+    }
+  }'
+```
+
+## Response
+
+```json 201
+{
+  "id": "flt_m4n5o6p7",
+  "name": "price-check-fleet",
+  "status": "launching",
+  "sessions": [
+    { "id": "ses_a1", "status": "launching", "proxy": { "country": "US" } },
+    { "id": "ses_a2", "status": "launching", "proxy": { "country": "GB" } },
+    { "id": "ses_a3", "status": "launching", "proxy": { "country": "DE" } }
+  ],
+  "total": 10,
+  "ready": 0,
+  "createdAt": "2026-10-27T14:00:00Z"
+}
+```

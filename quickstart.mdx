@@ -1,0 +1,141 @@
+---
+title: Quickstart
+description: "Launch your first stealth browser in under 2 minutes"
+---
+
+# Quickstart
+
+Get a managed stealth browser running in minutes. This guide uses the TypeScript SDK, but you can also use the REST API directly.
+
+## 1. Get an API Key
+
+Sign up at [app.meshbrow.dev](https://app.meshbrow.dev/signup) to get your API key.
+
+## 2. Install the SDK
+
+<CodeGroup>
+
+```bash npm
+npm install @meshbrow/sdk
+```
+
+```bash pnpm
+pnpm add @meshbrow/sdk
+```
+
+```bash yarn
+yarn add @meshbrow/sdk
+```
+
+</CodeGroup>
+
+## 3. Launch a Session
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+
+const client = new Meshbrow({ apiKey: 'mb_live_...' });
+
+// Launch a stealth browser with a US residential proxy
+const session = await client.sessions.create({
+  proxy: { type: 'residential', country: 'US' },
+  stealth: 'max',
+  fingerprint: 'auto', // Generate a realistic fingerprint
+});
+
+console.log(`Session: ${session.id}`);
+console.log(`CDP URL: ${session.cdpUrl}`);
+```
+
+## 4. Connect with Playwright
+
+```typescript
+import { chromium } from 'playwright';
+
+const browser = await chromium.connectOverCDP(session.cdpUrl);
+const context = browser.contexts()[0];
+const page = context.pages()[0];
+
+// Browse as a real user
+await page.goto('https://nowsecure.nl');
+await page.waitForTimeout(3000);
+
+// Take a screenshot
+await page.screenshot({ path: 'result.png' });
+console.log('Anti-detect test passed!');
+```
+
+## 5. Destroy the Session
+
+```typescript
+await client.sessions.destroy(session.id);
+```
+
+## Full Example
+
+Here's the complete script:
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium } from 'playwright';
+
+async function main() {
+  const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+  // Launch session
+  const session = await client.sessions.create({
+    proxy: { type: 'residential', country: 'US' },
+    stealth: 'max',
+  });
+
+  try {
+    // Connect Playwright
+    const browser = await chromium.connectOverCDP(session.cdpUrl);
+    const page = browser.contexts()[0].pages()[0];
+
+    // Navigate and extract data
+    await page.goto('https://example.com');
+    const title = await page.title();
+    console.log(`Page title: ${title}`);
+
+    // Capture HAR
+    await page.context().tracing.start({ screenshots: true });
+    await page.goto('https://httpbin.org/ip');
+    await page.context().tracing.stop({ path: 'trace.zip' });
+
+  } finally {
+    // Always clean up
+    await client.sessions.destroy(session.id);
+  }
+}
+
+main();
+```
+
+## Using the REST API Directly
+
+If you prefer raw HTTP:
+
+```bash
+# Create a session
+curl -X POST https://api.meshbrow.dev/v1/sessions \
+  -H "Authorization: Bearer mb_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "proxy": { "type": "residential", "country": "US" },
+    "stealth": "max"
+  }'
+
+# Response:
+# { "id": "ses_abc123", "cdpUrl": "wss://api.meshbrow.dev/cdp/ses_abc123?token=..." }
+
+# Destroy when done
+curl -X DELETE https://api.meshbrow.dev/v1/sessions/ses_abc123 \
+  -H "Authorization: Bearer mb_live_..."
+```
+
+## Next Steps
+
+- [Playwright Guide](/guides/playwright) — Advanced Playwright patterns
+- [Session Profiles](/concepts/persistence) — Reuse cookies and login states
+- [Proxy Selection](/guides/proxy-selection) — Choose the right proxy type

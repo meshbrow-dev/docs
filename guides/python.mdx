@@ -1,0 +1,218 @@
+---
+title: Python Integration
+description: "Use Meshbrow with Python — Playwright, Selenium, and requests"
+sidebarTitle: "Python"
+---
+
+# Python Integration
+
+Meshbrow works with Python via Playwright for Python, Selenium, or direct HTTP with the REST API.
+
+## Playwright for Python
+
+The recommended approach — full CDP support with async/await.
+
+### Installation
+
+```bash
+pip install playwright httpx
+playwright install chromium
+```
+
+### Basic Usage
+
+```python
+import httpx
+from playwright.async_api import async_playwright
+import asyncio
+
+MESHBROW_API_KEY = "mb_live_..."
+API_URL = "https://api.meshbrow.dev/v1"
+
+async def main():
+    # Create session via REST API
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            f"{API_URL}/sessions",
+            headers={"Authorization": f"Bearer {MESHBROW_API_KEY}"},
+            json={
+                "proxy": {"type": "residential", "country": "US"},
+                "stealth": "max",
+            },
+        )
+        session = resp.json()
+
+    # Connect Playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.connect_over_cdp(session["cdpUrl"])
+        context = browser.contexts[0]
+        page = context.pages[0]
+
+        await page.goto("https://example.com")
+        print(await page.title())
+
+        await browser.close()
+
+    # Destroy session
+    async with httpx.AsyncClient() as http:
+        await http.delete(
+            f"{API_URL}/sessions/{session['id']}",
+            headers={"Authorization": f"Bearer {MESHBROW_API_KEY}"},
+        )
+
+asyncio.run(main())
+```
+
+### With Session Profiles
+
+```python
+async def scrape_with_profile():
+    async with httpx.AsyncClient() as http:
+        # Create session with saved profile
+        resp = await http.post(
+            f"{API_URL}/sessions",
+            headers={"Authorization": f"Bearer {MESHBROW_API_KEY}"},
+            json={
+                "profileId": "prof_x9y8z7w6",
+                "stealth": "max",
+            },
+        )
+        session = resp.json()
+
+    async with async_playwright() as p:
+        browser = await p.chromium.connect_over_cdp(session["cdpUrl"])
+        page = browser.contexts[0].pages[0]
+
+        # Already authenticated from profile cookies
+        await page.goto("https://app.example.com/dashboard")
+        data = await page.text_content(".user-info")
+        print(f"Logged in as: {data}")
+```
+
+## Selenium
+
+For teams already using Selenium:
+
+```python
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+import httpx
+
+# Create Meshbrow session
+resp = httpx.post(
+    "https://api.meshbrow.dev/v1/sessions",
+    headers={"Authorization": "Bearer mb_live_..."},
+    json={"proxy": {"type": "residential", "country": "US"}, "stealth": "max"},
+)
+session = resp.json()
+
+# Connect Selenium via CDP
+options = Options()
+options.debugger_address = session["cdpUrl"].replace("wss://", "").split("?")[0]
+
+driver = webdriver.Chrome(options=options)
+driver.get("https://example.com")
+print(driver.title)
+
+driver.quit()
+```
+
+<Note>
+  Playwright is strongly recommended over Selenium for Meshbrow. 
+  Playwright has better CDP support, faster execution, and built-in async.
+</Note>
+
+## Direct REST API with httpx/requests
+
+For simple use cases without a browser automation library:
+
+```python
+import httpx
+
+client = httpx.Client(
+    base_url="https://api.meshbrow.dev/v1",
+    headers={"Authorization": "Bearer mb_live_..."},
+)
+
+# Create session
+session = client.post("/sessions", json={
+    "proxy": {"type": "residential", "country": "US"},
+    "stealth": "max",
+}).json()
+
+print(f"Session ready: {session['id']}")
+print(f"CDP URL: {session['cdpUrl']}")
+
+# List active sessions
+sessions = client.get("/sessions?status=active").json()
+print(f"Active sessions: {sessions['total']}")
+
+# Destroy session
+client.delete(f"/sessions/{session['id']}")
+```
+
+## Fleet Operations
+
+```python
+import asyncio
+from playwright.async_api import async_playwright
+import httpx
+
+async def parallel_scrape():
+    async with httpx.AsyncClient() as http:
+        # Launch fleet
+        resp = await http.post(
+            f"{API_URL}/fleet",
+            headers={"Authorization": f"Bearer {MESHBROW_API_KEY}"},
+            json={
+                "name": "price-check",
+                "count": 5,
+                "config": {"stealth": "max"},
+                "distribution": {"countries": ["US", "GB", "DE", "FR", "JP"]},
+            },
+        )
+        fleet = resp.json()
+
+        # Wait for ready
+        await asyncio.sleep(5)
+        resp = await http.get(
+            f"{API_URL}/fleet/{fleet['id']}",
+            headers={"Authorization": f"Bearer {MESHBROW_API_KEY}"},
+        )
+        fleet_status = resp.json()
+
+    # Connect to all browsers
+    async with async_playwright() as p:
+        tasks = []
+        for session in fleet_status["sessions"]:
+            tasks.append(scrape_page(p, session["cdpUrl"]))
+        results = await asyncio.gather(*tasks)
+        print(results)
+
+async def scrape_page(p, cdp_url):
+    browser = await p.chromium.connect_over_cdp(cdp_url)
+    page = browser.contexts[0].pages[0]
+    await page.goto("https://example.com")
+    title = await page.title()
+    await browser.close()
+    return title
+```
+
+## Error Handling
+
+```python
+import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+async def create_session_with_retry():
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            f"{API_URL}/sessions",
+            headers={"Authorization": f"Bearer {MESHBROW_API_KEY}"},
+            json={"proxy": {"type": "residential"}, "stealth": "max"},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+```

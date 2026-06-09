@@ -1,0 +1,67 @@
+---
+title: Authentication
+description: "API key authentication for Meshbrow"
+---
+
+# Authentication
+
+All Meshbrow API requests require authentication via an API key.
+
+## API Keys
+
+API keys are prefixed with `mb_live_` (production) or `mb_test_` (sandbox). Pass your key in the `Authorization` header:
+
+```bash
+Authorization: Bearer mb_live_your_key_here
+```
+
+## SDK Authentication
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+
+const client = new Meshbrow({
+  apiKey: process.env.MESHBROW_API_KEY,
+});
+```
+
+## Key Security
+
+<Warning>
+  Never commit API keys to source control. Use environment variables or a secrets manager.
+</Warning>
+
+Best practices:
+- Store keys in environment variables (`MESHBROW_API_KEY`)
+- Use different keys for development and production
+- Rotate keys periodically via the dashboard
+- Restrict key permissions by scope (sessions, fleet, billing)
+
+## Rate Limits
+
+| Plan       | Requests/min | Concurrent Sessions |
+|------------|-------------|-------------------|
+| Free       | 60          | 5                 |
+| Pro        | 600         | 50                |
+| Enterprise | 6000        | 500               |
+
+Rate limit headers are included in every response:
+
+```
+X-RateLimit-Limit: 600
+X-RateLimit-Remaining: 594
+X-RateLimit-Reset: 1700000060
+```
+
+## Error Responses
+
+Authentication errors return `401 Unauthorized`:
+
+```json
+{
+  "error": {
+    "code": "unauthorized",
+    "message": "Invalid or expired API key"
+  }
+}
+```

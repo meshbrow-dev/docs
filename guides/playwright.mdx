@@ -1,0 +1,181 @@
+---
+title: Playwright Integration
+description: "Connect Playwright to Meshbrow stealth browsers"
+sidebarTitle: "Playwright"
+---
+
+# Playwright Integration
+
+Playwright connects natively to Meshbrow via CDP (Chrome DevTools Protocol). This guide covers setup, patterns, and best practices.
+
+## Basic Connection
+
+```typescript
+import { Meshbrow } from '@meshbrow/sdk';
+import { chromium } from 'playwright';
+
+const client = new Meshbrow({ apiKey: process.env.MESHBROW_API_KEY! });
+
+const session = await client.sessions.create({
+  proxy: { type: 'residential', country: 'US' },
+  stealth: 'max',
+});
+
+const browser = await chromium.connectOverCDP(session.cdpUrl);
+const context = browser.contexts()[0];
+const page = context.pages()[0];
+
+await page.goto('https://example.com');
+```
+
+## Using Session Profiles
+
+Reuse login states across sessions with profiles:
+
+```typescript
+// First run: authenticate and save
+const session = await client.sessions.create({
+  proxy: { type: 'isp', country: 'US', sticky: true },
+  stealth: 'max',
+});
+
+const browser = await chromium.connectOverCDP(session.cdpUrl);
+const page = browser.contexts()[0].pages()[0];
+
+// Log in manually or programmatically
+await page.goto('https://app.example.com/login');
+await page.fill('#email', 'user@example.com');
+await page.fill('#password', '...');
+await page.click('button[type="submit"]');
+await page.waitForNavigation();
+
+// Save session state to a profile
+await client.sessions.destroy(session.id, { saveProfile: true });
+
+// Subsequent runs: restore the profile
+const session2 = await client.sessions.create({
+  profileId: 'prof_x9y8z7w6',
+  proxy: { type: 'isp', country: 'US' },
+  stealth: 'max',
+});
+// Already logged in!
+```
+
+## Parallel Pages
+
+Open multiple pages within a single session:
+
+```typescript
+const browser = await chromium.connectOverCDP(session.cdpUrl);
+const context = browser.contexts()[0];
+
+const urls = [
+  'https://example.com/page-1',
+  'https://example.com/page-2',
+  'https://example.com/page-3',
+];
+
+const results = await Promise.all(
+  urls.map(async (url) => {
+    const page = await context.newPage();
+    await page.goto(url);
+    const title = await page.title();
+    await page.close();
+    return { url, title };
+  })
+);
+```
+
+## Fleet Operations
+
+Launch multiple browsers for parallel scraping:
+
+```typescript
+const fleet = await client.fleet.create({
+  name: 'price-monitor',
+  count: 5,
+  config: {
+    stealth: 'max',
+    proxy: { type: 'residential' },
+  },
+  distribution: { countries: ['US', 'GB', 'DE', 'FR', 'JP'] },
+});
+
+// Wait for all sessions to be ready
+const ready = await client.fleet.waitReady(fleet.id);
+
+// Connect to each browser
+const browsers = await Promise.all(
+  ready.sessions.map((s) => chromium.connectOverCDP(s.cdpUrl))
+);
+
+// Run tasks in parallel
+await Promise.all(
+  browsers.map(async (browser, i) => {
+    const page = browser.contexts()[0].pages()[0];
+    await page.goto(`https://shop.example.com/product/${i}`);
+    const price = await page.textContent('.price');
+    console.log(`Region ${i}: ${price}`);
+  })
+);
+
+// Cleanup
+await client.fleet.destroy(fleet.id);
+```
+
+## Error Handling & Reconnection
+
+```typescript
+import { chromium, errors } from 'playwright';
+
+async function withRetry(cdpUrl: string, task: (page: any) => Promise<void>) {
+  let retries = 3;
+
+  while (retries > 0) {
+    try {
+      const browser = await chromium.connectOverCDP(cdpUrl);
+      const page = browser.contexts()[0].pages()[0];
+      await task(page);
+      return;
+    } catch (err) {
+      if (err instanceof errors.TimeoutError) {
+        retries--;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+```
+
+## Capturing HAR Files
+
+```typescript
+const browser = await chromium.connectOverCDP(session.cdpUrl);
+const context = browser.contexts()[0];
+
+// Start recording
+await context.tracing.start({ screenshots: true, snapshots: true });
+
+const page = context.pages()[0];
+await page.goto('https://example.com');
+await page.click('a.nav-link');
+
+// Save trace
+await context.tracing.stop({ path: 'trace.zip' });
+```
+
+## Tips
+
+<AccordionGroup>
+  <Accordion title="Use headless: false for debugging">
+    Meshbrow sessions support VNC for visual debugging during development. Pass `headed: true` in session config.
+  </Accordion>
+  <Accordion title="Set realistic timings">
+    Add human-like delays between actions. Playwright's `page.waitForTimeout()` or random delays between 500-2000ms.
+  </Accordion>
+  <Accordion title="Avoid detection patterns">
+    Don't navigate too fast. Randomize viewport scrolling. Use `page.mouse.move()` to simulate natural cursor movement.
+  </Accordion>
+</AccordionGroup>

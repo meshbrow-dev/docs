@@ -1,0 +1,80 @@
+---
+title: Create Profile
+api: POST /v1/profiles
+description: "Create a reusable session profile"
+---
+
+# Create Profile
+
+Create a named profile that stores cookies, localStorage, fingerprint preferences, and proxy settings for reuse across sessions.
+
+<ParamField body="name" type="string" required>
+  Human-readable profile name.
+</ParamField>
+
+<ParamField body="fingerprint" type="object">
+  Preferred fingerprint settings.
+  <Expandable title="properties">
+    <ParamField body="platform" type="string">OS platform.</ParamField>
+    <ParamField body="userAgent" type="string">Preferred User-Agent.</ParamField>
+    <ParamField body="locale" type="string">Browser locale.</ParamField>
+    <ParamField body="timezone" type="string">IANA timezone.</ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="proxy" type="object">
+  Preferred proxy settings.
+  <Expandable title="properties">
+    <ParamField body="type" type="string">Proxy type preference.</ParamField>
+    <ParamField body="country" type="string">Preferred country.</ParamField>
+    <ParamField body="sticky" type="boolean">Use same IP across sessions.</ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="tags" type="string[]">
+  Tags for organization.
+</ParamField>
+
+## Request
+
+```bash
+curl -X POST https://api.meshbrow.dev/v1/profiles \
+  -H "Authorization: Bearer mb_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "GitHub Bot",
+    "fingerprint": {
+      "platform": "MacIntel",
+      "locale": "en-US",
+      "timezone": "America/New_York"
+    },
+    "proxy": {
+      "type": "residential",
+      "country": "US",
+      "sticky": true
+    },
+    "tags": ["github", "scraping"]
+  }'
+```
+
+## Response
+
+```json 201
+{
+  "id": "prof_x9y8z7w6",
+  "name": "GitHub Bot",
+  "fingerprint": {
+    "platform": "MacIntel",
+    "locale": "en-US",
+    "timezone": "America/New_York"
+  },
+  "proxy": {
+    "type": "residential",
+    "country": "US",
+    "sticky": true
+  },
+  "tags": ["github", "scraping"],
+  "createdAt": "2026-10-27T14:00:00Z",
+  "usageCount": 0
+}
+```

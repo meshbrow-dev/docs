@@ -1,0 +1,172 @@
+---
+title: Anti-Detection Best Practices
+description: "How to stay undetected when using Meshbrow browsers"
+sidebarTitle: "Anti-Detection"
+---
+
+# Anti-Detection Best Practices
+
+Meshbrow handles most anti-detection automatically, but your browsing behavior still matters. This guide covers what Meshbrow does for you and what you need to do yourself.
+
+## What Meshbrow Handles Automatically
+
+<CardGroup cols={2}>
+  <Card title="Browser Fingerprint" icon="fingerprint">
+    Canvas noise, WebGL spoofing, font enumeration, plugin list, screen resolution — all generated consistently per session.
+  </Card>
+  <Card title="Navigator Properties" icon="compass">
+    platform, hardwareConcurrency, deviceMemory, languages, webdriver flag — all patched to match the fingerprint.
+  </Card>
+  <Card title="WebRTC Leak Prevention" icon="shield">
+    Local IP addresses are masked. WebRTC candidates reflect the proxy IP only.
+  </Card>
+  <Card title="TLS Fingerprint" icon="lock">
+    JA3/JA4 fingerprints match real Chrome browsers. No detectable automation signatures.
+  </Card>
+  <Card title="Timezone & Locale" icon="globe">
+    Automatically matched to proxy geo-location. `Intl.DateTimeFormat` and `Date` are consistent.
+  </Card>
+  <Card title="Chrome Flags" icon="flag">
+    No `--enable-automation`, no `cdc_` driver properties, no leaked DevTools protocol indicators.
+  </Card>
+</CardGroup>
+
+## What You Need to Do
+
+### 1. Behave Like a Human
+
+Anti-detect isn't just about fingerprints — it's about behavior.
+
+```typescript
+// ❌ BAD: Machine-like rapid navigation
+await page.goto('https://example.com/page-1');
+await page.goto('https://example.com/page-2');
+await page.goto('https://example.com/page-3');
+
+// ✅ GOOD: Human-like browsing with delays
+await page.goto('https://example.com/page-1');
+await page.waitForTimeout(randomDelay(2000, 5000));
+await page.goto('https://example.com/page-2');
+await page.waitForTimeout(randomDelay(1500, 4000));
+
+function randomDelay(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min) + min);
+}
+```
+
+### 2. Simulate Mouse Movement
+
+```typescript
+// Move mouse naturally before clicking
+async function humanClick(page, selector) {
+  const element = await page.$(selector);
+  const box = await element.boundingBox();
+
+  // Move to element with natural curve
+  await page.mouse.move(
+    box.x + box.width * Math.random(),
+    box.y + box.height * Math.random(),
+    { steps: Math.floor(Math.random() * 10) + 5 }
+  );
+
+  await page.waitForTimeout(randomDelay(100, 300));
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+```
+
+### 3. Scroll Naturally
+
+```typescript
+// ❌ BAD: Jump to bottom
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+
+// ✅ GOOD: Scroll incrementally
+async function humanScroll(page) {
+  const scrollHeight = await page.evaluate(() => document.body.scrollHeight);
+  let currentPosition = 0;
+
+  while (currentPosition < scrollHeight) {
+    const scrollAmount = Math.floor(Math.random() * 300) + 100;
+    currentPosition += scrollAmount;
+    await page.evaluate((y) => window.scrollTo(0, y), currentPosition);
+    await page.waitForTimeout(randomDelay(200, 800));
+  }
+}
+```
+
+### 4. Use Realistic Session Durations
+
+```typescript
+// ❌ BAD: Extract and immediately close
+const data = await page.textContent('.data');
+await client.sessions.destroy(session.id);
+
+// ✅ GOOD: Spend realistic time on page
+await page.waitForTimeout(randomDelay(5000, 15000)); // "Read" the page
+const data = await page.textContent('.data');
+await page.waitForTimeout(randomDelay(2000, 5000));
+await client.sessions.destroy(session.id);
+```
+
+### 5. Match Proxy Geo with Content
+
+```typescript
+// ❌ BAD: US proxy visiting Japanese site with English locale
+const session = await client.sessions.create({
+  proxy: { type: 'residential', country: 'US' },
+  fingerprint: { locale: 'en-US', timezone: 'America/New_York' },
+});
+await page.goto('https://rakuten.co.jp');
+
+// ✅ GOOD: Japanese proxy for Japanese site
+const session = await client.sessions.create({
+  proxy: { type: 'residential', country: 'JP' },
+  fingerprint: { locale: 'ja-JP', timezone: 'Asia/Tokyo' },
+});
+await page.goto('https://rakuten.co.jp');
+```
+
+## Common Detection Vectors
+
+| Vector | Risk | Meshbrow Mitigation |
+|--------|------|-------------------|
+| Canvas fingerprint | High | Subtle noise injection per session |
+| WebGL renderer | High | Spoofed vendor/renderer strings |
+| navigator.webdriver | High | Completely removed |
+| TLS fingerprint (JA3) | High | Matches real Chrome |
+| IP reputation | Medium | Multi-provider proxy pool with scoring |
+| Behavioral analysis | Medium | **Your responsibility** |
+| Request patterns | Medium | Add human-like delays |
+| Header order | Low | Matches real Chrome exactly |
+| Font enumeration | Low | Realistic font sets per OS |
+
+## Testing Your Anti-Detection
+
+Use these sites to verify your setup:
+
+```typescript
+const testSites = [
+  'https://nowsecure.nl',           // General stealth test
+  'https://bot.sannysoft.com',       // Comprehensive checks
+  'https://browserleaks.com',        // Detailed fingerprint info
+  'https://creepjs.com',             // Advanced fingerprinting
+  'https://fingerprintjs.github.io/fingerprintjs/', // FingerprintJS
+];
+
+for (const url of testSites) {
+  await page.goto(url);
+  await page.screenshot({ path: `test-${new URL(url).hostname}.png` });
+}
+```
+
+## Stealth Levels Explained
+
+| Level | What It Does | When to Use |
+|-------|-------------|-------------|
+| `none` | No anti-detection patches | Testing, development |
+| `standard` | Basic patches (webdriver, plugins, languages) | Low-security sites |
+| `max` | Full suite (canvas, WebGL, TLS, fonts, everything) | High-security sites, captcha-protected pages |
+
+<Tip>
+  Always start with `stealth: "max"`. Only reduce if you need faster session launch times for known low-security targets.
+</Tip>

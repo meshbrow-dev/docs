@@ -1,0 +1,161 @@
+---
+title: Create Session
+api: POST /v1/sessions
+description: "Launch a new stealth browser session"
+---
+
+# Create Session
+
+Launch a new isolated browser session with stealth configuration, proxy, and fingerprint.
+
+<ParamField body="proxy" type="object">
+  Proxy configuration for the session.
+  <Expandable title="properties">
+    <ParamField body="type" type="string" required>
+      Proxy type. One of: `residential`, `datacenter`, `isp`, `mobile`.
+    </ParamField>
+    <ParamField body="country" type="string">
+      ISO 3166-1 alpha-2 country code (e.g., `US`, `GB`, `DE`).
+    </ParamField>
+    <ParamField body="region" type="string">
+      Geographic region: `us`, `eu`, `asia`, `latam`.
+    </ParamField>
+    <ParamField body="city" type="string">
+      City name (e.g., `New York`, `London`). Requires `country`.
+    </ParamField>
+    <ParamField body="sticky" type="boolean" default="false">
+      Use the same IP for the session duration.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="stealth" type="string" default="max">
+  Anti-detection level. One of: `none`, `standard`, `max`.
+</ParamField>
+
+<ParamField body="fingerprint" type="string | object" default="auto">
+  Set to `auto` for automatic fingerprint generation, or provide a custom config.
+  <Expandable title="custom fingerprint properties">
+    <ParamField body="platform" type="string">
+      OS platform: `Win32`, `MacIntel`, `Linux x86_64`.
+    </ParamField>
+    <ParamField body="userAgent" type="string">
+      Custom User-Agent string.
+    </ParamField>
+    <ParamField body="locale" type="string">
+      Browser locale (e.g., `en-US`).
+    </ParamField>
+    <ParamField body="timezone" type="string">
+      IANA timezone (e.g., `America/New_York`).
+    </ParamField>
+    <ParamField body="viewport" type="object">
+      Custom viewport: `{ "width": 1920, "height": 1080 }`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="profileId" type="string">
+  Load a saved profile (cookies, localStorage, fingerprint preferences).
+</ParamField>
+
+<ParamField body="timeout" type="integer" default="1800">
+  Maximum session duration in seconds. Max: 3600 (1 hour).
+</ParamField>
+
+<ParamField body="recording" type="object">
+  Session recording options.
+  <Expandable title="properties">
+    <ParamField body="har" type="boolean" default="false">
+      Capture HTTP Archive (HAR) file.
+    </ParamField>
+    <ParamField body="screenshots" type="boolean" default="false">
+      Capture periodic screenshots.
+    </ParamField>
+    <ParamField body="video" type="boolean" default="false">
+      Record session video.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Request
+
+```bash
+curl -X POST https://api.meshbrow.dev/v1/sessions \
+  -H "Authorization: Bearer mb_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "proxy": {
+      "type": "residential",
+      "country": "US"
+    },
+    "stealth": "max",
+    "fingerprint": "auto",
+    "timeout": 1800
+  }'
+```
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique session identifier.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Session status: `launching`, `ready`, `active`, `idle`, `destroyed`, `failed`.
+</ResponseField>
+
+<ResponseField name="cdpUrl" type="string">
+  CDP WebSocket URL for connecting Playwright/Puppeteer.
+</ResponseField>
+
+<ResponseField name="proxy" type="object">
+  Assigned proxy details (IP, country, type).
+</ResponseField>
+
+<ResponseField name="fingerprint" type="object">
+  Generated fingerprint details.
+</ResponseField>
+
+<ResponseField name="expiresAt" type="string">
+  ISO 8601 timestamp when session will auto-destroy.
+</ResponseField>
+
+```json 201
+{
+  "id": "ses_k8m2n4p6",
+  "status": "ready",
+  "cdpUrl": "wss://api.meshbrow.dev/cdp/ses_k8m2n4p6?token=ct_abc123",
+  "proxy": {
+    "type": "residential",
+    "country": "US",
+    "city": "Dallas",
+    "ip": "104.xxx.xxx.xxx"
+  },
+  "fingerprint": {
+    "platform": "Win32",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...",
+    "locale": "en-US",
+    "timezone": "America/Chicago"
+  },
+  "expiresAt": "2026-10-27T14:30:00Z"
+}
+```
+
+```json 400
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "proxy.type must be one of: residential, datacenter, isp, mobile"
+  }
+}
+```
+
+```json 429
+{
+  "error": {
+    "code": "rate_limited",
+    "message": "Concurrent session limit reached (50/50)",
+    "retryAfter": 30
+  }
+}
+```

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Meshbrow",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5",
+    "anchors": {
+      "from": "#6366F1",
+      "to": "#8B5CF6"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Dashboard",
+      "url": "https://app.meshbrow.dev"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get API Key",
+    "url": "https://app.meshbrow.dev/signup"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    },
+    {
+      "name": "Guides",
+      "url": "guides"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/meshbrow-dev"
+    },
+    {
+      "name": "Discord",
+      "icon": "discord",
+      "url": "https://discord.gg/meshbrow"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "authentication"
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        "concepts/sessions",
+        "concepts/fingerprints",
+        "concepts/proxies",
+        "concepts/persistence"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api-reference/overview",
+        "api-reference/sessions/create",
+        "api-reference/sessions/get",
+        "api-reference/sessions/destroy",
+        "api-reference/sessions/list",
+        "api-reference/profiles/create",
+        "api-reference/profiles/get",
+        "api-reference/profiles/list",
+        "api-reference/fleet/create",
+        "api-reference/fleet/status"
+      ]
+    },
+    {
+      "group": "Integration Guides",
+      "pages": [
+        "guides/playwright",
+        "guides/puppeteer",
+        "guides/python",
+        "guides/mcp-agents",
+        "guides/anti-detection",
+        "guides/proxy-selection"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "x": "https://x.com/meshbrow",
+    "github": "https://github.com/meshbrow-dev"
+  }
+}

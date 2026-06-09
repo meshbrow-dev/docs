@@ -1,0 +1,47 @@
+---
+title: Fleet Status
+api: GET /v1/fleet/{id}
+description: "Get fleet status and session details"
+---
+
+# Fleet Status
+
+Retrieve the current status of a fleet and all its sessions.
+
+<ParamField path="id" type="string" required>
+  The fleet ID.
+</ParamField>
+
+## Request
+
+```bash
+curl https://api.meshbrow.dev/v1/fleet/flt_m4n5o6p7 \
+  -H "Authorization: Bearer mb_live_..."
+```
+
+## Response
+
+```json 200
+{
+  "id": "flt_m4n5o6p7",
+  "name": "price-check-fleet",
+  "status": "active",
+  "sessions": [
+    { "id": "ses_a1", "status": "active", "proxy": { "country": "US", "ip": "104.x.x.x" } },
+    { "id": "ses_a2", "status": "active", "proxy": { "country": "GB", "ip": "185.x.x.x" } },
+    { "id": "ses_a3", "status": "active", "proxy": { "country": "DE", "ip": "91.x.x.x" } },
+    { "id": "ses_a4", "status": "active", "proxy": { "country": "FR", "ip": "78.x.x.x" } },
+    { "id": "ses_a5", "status": "active", "proxy": { "country": "JP", "ip": "103.x.x.x" } }
+  ],
+  "total": 10,
+  "ready": 10,
+  "failed": 0,
+  "metrics": {
+    "totalPages": 87,
+    "totalBytes": 142000000,
+    "avgLatency": 234
+  },
+  "createdAt": "2026-10-27T14:00:00Z",
+  "expiresAt": "2026-10-27T14:10:00Z"
+}
+```
