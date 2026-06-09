@@ -1,0 +1,185 @@
+---
+title: Browser Agent
+description: "The agent daemon that runs alongside each browser session"
+sidebarTitle: "Agent"
+---
+
+# Browser Agent
+
+The `meshbrow-agent` is a daemon that runs alongside each browser session inside its network namespace or Firecracker VM. It provides health monitoring, process supervision, metrics collection, and filesystem watching.
+
+<Note>
+  The agent is automatically deployed by the Meshbrow platform. You only need to install it manually for self-hosted or custom setups.
+</Note>
+
+## Installation
+
+<Tabs>
+  <Tab title="Homebrew (macOS/Linux)">
+    ```bash
+    brew tap meshbrow-dev/tap
+    brew install meshbrow-agent
+    ```
+  </Tab>
+  <Tab title="Go Install">
+    ```bash
+    go install github.com/meshbrow-dev/meshbrow-agent@latest
+    ```
+  </Tab>
+  <Tab title="Binary">
+    ```bash
+    curl -fsSL https://github.com/meshbrow-dev/meshbrow-agent/releases/latest/download/meshbrow-agent-linux-amd64 \
+      -o /usr/local/bin/meshbrow-agent
+    chmod +x /usr/local/bin/meshbrow-agent
+    ```
+  </Tab>
+  <Tab title="Docker">
+    ```bash
+    docker pull ghcr.io/meshbrow-dev/meshbrow-agent:latest
+    ```
+  </Tab>
+</Tabs>
+
+Verify the installation:
+
+```bash
+meshbrow-agent --version
+# meshbrow-agent v0.1.0
+```
+
+## Usage
+
+```bash
+meshbrow-agent \
+  --session-id sess_abc123 \
+  --socket /run/meshbrow/agent.sock \
+  --workspace /tmp/meshbrow-session \
+  --log-level info
+```
+
+## Configuration
+
+| Flag | Env Variable | Default | Description |
+|------|-------------|---------|-------------|
+| `--session-id` | `MESHBROW_SESSION_ID` | (required) | Browser session ID |
+| `--socket` | `MESHBROW_SOCKET` | `/run/meshbrow/agent.sock` | Unix socket path |
+| `--workspace` | `MESHBROW_WORKSPACE` | `/tmp/meshbrow-session` | Session workspace directory |
+| `--log-level` | `MESHBROW_LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+| `--heartbeat-interval` | — | `5s` | Heartbeat reporting interval |
+| `--metrics-interval` | — | `10s` | Metrics collection interval |
+
+## What It Does
+
+The agent provides five core capabilities:
+
+### Health Reporting
+
+Sends periodic heartbeats to the host (`browserd`) over the unix socket. Reports:
+- Browser process alive/dead status
+- CPU and memory usage
+- Uptime
+- Process ID
+
+### Browser Process Supervision
+
+Monitors the Chromium process. If the browser crashes, the agent reports it immediately via a health status change, allowing `browserd` to restart or destroy the session.
+
+### Metrics Collection
+
+Collects system metrics at configurable intervals:
+- CPU utilization
+- Memory usage (used/total)
+- Disk usage
+- Network I/O (bytes sent/received)
+- Open file descriptors
+- Active goroutines
+
+### Filesystem Watching
+
+Monitors the session workspace for changes and streams events:
+- File creation
+- File modification
+- File deletion
+
+Excludes noise directories (`.git`, `node_modules`, `__pycache__`).
+
+### Graceful Shutdown
+
+Handles `SIGTERM` and `SIGINT` signals. On shutdown:
+1. Stops all subsystems (heartbeat, metrics, watcher)
+2. Sends a deregistration message to the host
+3. Exits cleanly
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│ Network Namespace / Firecracker VM               │
+│                                                  │
+│  ┌──────────────────────────────────────┐       │
+│  │         meshbrow-agent                │       │
+│  │                                       │       │
+│  │  ┌───────────┐  ┌────────────────┐  │       │
+│  │  │ FS Watcher │  │ Health/HB      │  │       │
+│  │  └───────────┘  └────────────────┘  │       │
+│  │  ┌───────────┐  ┌────────────────┐  │       │
+│  │  │ Metrics   │  │ Command Rx     │  │       │
+│  │  └───────────┘  └────────────────┘  │       │
+│  └──────────────────────────────────────┘       │
+│           │ unix socket                          │
+│           │                                      │
+│  ┌────────┴─────────────────────────────┐       │
+│  │         chromium (headless)            │       │
+│  └───────────────────────────────────────┘       │
+└──────────┼───────────────────────────────────────┘
+           │
+   ┌───────┴───────┐
+   │ Meshbrow Host │
+   │   (browserd)  │
+   └───────────────┘
+```
+
+## Protocol Messages
+
+The agent communicates via newline-delimited JSON over the unix socket.
+
+### Agent → Host
+
+| Type | Description |
+|------|-------------|
+| `register` | Initial registration with version, workspace, PID |
+| `heartbeat` | Periodic health status |
+| `metrics` | System metrics snapshot |
+| `fs_event` | Filesystem change event |
+| `deregister` | Graceful shutdown notification |
+| `health_response` | Response to on-demand health check |
+| `metrics_response` | Response to on-demand metrics request |
+
+### Host → Agent
+
+| Type | Description |
+|------|-------------|
+| `shutdown` | Initiate graceful shutdown |
+| `health_check` | Request immediate health status |
+| `collect_metrics` | Request immediate metrics snapshot |
+
+## Building from Source
+
+```bash
+git clone https://github.com/meshbrow-dev/meshbrow-agent.git
+cd meshbrow-agent
+
+# Native build
+go build -o meshbrow-agent ./cmd/agent
+
+# Static Linux binary (for containers/VMs)
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o meshbrow-agent ./cmd/agent
+```
+
+## Development
+
+```bash
+go test ./...
+go test -race ./...
+golangci-lint run
+```

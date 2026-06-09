@@ -1,17 +1,49 @@
 ---
-title: MCP & AI Agent Integration
-description: "Use Meshbrow with AI agents via MCP tools and the agent SDK"
-sidebarTitle: "MCP / Agents"
+title: MCP Server
+description: "Give AI agents stealth browser capabilities via the Model Context Protocol"
+sidebarTitle: "MCP Server"
 ---
 
-# MCP & AI Agent Integration
+# MCP Server
 
-Meshbrow provides two packages for AI agent integration:
+The `meshbrow-mcp` server exposes Meshbrow's stealth browser capabilities as MCP tools. Compatible with Claude Desktop, VS Code Copilot, Cursor, and any MCP-compatible client.
 
-1. **`@meshbrow/mcp-server`** — MCP server for Claude Desktop, VS Code Copilot, Cursor, and other MCP clients
-2. **`@meshbrow/agent`** — High-level agent framework with LLM tool calling support (OpenAI, Anthropic)
+## Installation
 
-## MCP Server Setup
+<Tabs>
+  <Tab title="Homebrew (macOS/Linux)">
+    ```bash
+    brew tap meshbrow-dev/tap
+    brew install meshbrow-mcp
+    ```
+  </Tab>
+  <Tab title="Go Install">
+    ```bash
+    go install github.com/meshbrow-dev/meshbrow-mcp@latest
+    ```
+  </Tab>
+  <Tab title="Binary">
+    ```bash
+    curl -fsSL https://github.com/meshbrow-dev/meshbrow-mcp/releases/latest/download/meshbrow-mcp-linux-amd64 \
+      -o /usr/local/bin/meshbrow-mcp
+    chmod +x /usr/local/bin/meshbrow-mcp
+    ```
+  </Tab>
+  <Tab title="Docker">
+    ```bash
+    docker pull ghcr.io/meshbrow-dev/meshbrow-mcp:latest
+    ```
+  </Tab>
+</Tabs>
+
+Verify the installation:
+
+```bash
+meshbrow-mcp --version
+# meshbrow-mcp v0.1.0
+```
+
+## Configuration
 
 ### Claude Desktop
 
@@ -21,8 +53,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "meshbrow": {
-      "command": "npx",
-      "args": ["-y", "@meshbrow/mcp-server"],
+      "command": "meshbrow-mcp",
+      "args": ["--mode", "stdio"],
       "env": {
         "MESHBROW_API_KEY": "mb_live_your_key_here"
       }
@@ -39,8 +71,8 @@ Add to `.vscode/mcp.json` in your project:
 {
   "servers": {
     "meshbrow": {
-      "command": "npx",
-      "args": ["-y", "@meshbrow/mcp-server"],
+      "command": "meshbrow-mcp",
+      "args": ["--mode", "stdio"],
       "env": {
         "MESHBROW_API_KEY": "mb_live_your_key_here"
       }
@@ -51,31 +83,53 @@ Add to `.vscode/mcp.json` in your project:
 
 ### Cursor
 
-Add to your Cursor MCP settings:
+Add to `.cursor/mcp.json`:
 
 ```json
 {
-  "meshbrow": {
-    "command": "npx",
-    "args": ["-y", "@meshbrow/mcp-server"],
-    "env": {
-      "MESHBROW_API_KEY": "mb_live_your_key_here"
+  "mcpServers": {
+    "meshbrow": {
+      "command": "meshbrow-mcp",
+      "args": ["--mode", "stdio"],
+      "env": {
+        "MESHBROW_API_KEY": "mb_live_your_key_here"
+      }
     }
   }
 }
 ```
 
-## Available MCP Tools
+### Standalone (WebSocket)
+
+Run the MCP server over WebSocket for remote/shared access:
+
+```bash
+meshbrow-mcp --mode ws --port 9090 --api-key mb_live_...
+```
+
+## CLI Flags
+
+| Flag | Env Variable | Default | Description |
+|------|-------------|---------|-------------|
+| `--mode` | `MESHBROW_MCP_MODE` | `stdio` | Transport: `stdio` or `ws` |
+| `--port` | `MESHBROW_MCP_PORT` | `9090` | WebSocket listen port |
+| `--api-url` | `MESHBROW_API_URL` | `https://api.meshbrow.dev` | API endpoint |
+| `--api-key` | `MESHBROW_API_KEY` | (required) | Your API key |
+| `--log-level` | `MESHBROW_LOG_LEVEL` | `info` | Log level |
+
+## Available Tools
 
 ### Session Management
+
 | Tool | Description |
 |------|-------------|
-| `session_create` | Launch a stealth browser session |
+| `session_create` | Launch a stealth browser session with proxy and fingerprint |
 | `session_list` | List all active sessions |
 | `session_get` | Get session details and CDP endpoint |
 | `session_destroy` | Destroy a session (optionally save profile) |
 
 ### Browser Actions
+
 | Tool | Description |
 |------|-------------|
 | `browser_navigate` | Navigate to a URL |
@@ -87,125 +141,27 @@ Add to your Cursor MCP settings:
 | `browser_wait` | Wait for an element to appear |
 | `browser_scroll` | Scroll the page |
 
-### Profile & Fleet
+### Profiles
+
 | Tool | Description |
 |------|-------------|
 | `profile_create` | Create a persistent browser profile |
 | `profile_list` | List saved profiles |
+| `profile_get` | Get profile details |
+| `profile_delete` | Delete a profile |
+
+### Fleet
+
+| Tool | Description |
+|------|-------------|
 | `fleet_create` | Launch multiple sessions in parallel |
-| `fleet_status` | Check fleet status |
+| `fleet_status` | Check fleet session statuses |
 | `fleet_destroy` | Destroy all fleet sessions |
 
-## Agent SDK
-
-For building custom AI agents with browser capabilities:
-
-```bash
-npm install @meshbrow/agent
-```
-
-### Simple Browsing
-
-```typescript
-import { BrowserAgent } from '@meshbrow/agent';
-
-const agent = new BrowserAgent({
-  apiKey: process.env.MESHBROW_API_KEY!,
-  stealth: 'max',
-  proxy: { type: 'residential', country: 'US' },
-});
-
-const result = await agent.browse({
-  url: 'https://news.ycombinator.com',
-  waitUntil: 'networkidle',
-});
-
-console.log(result.title);  // "Hacker News"
-console.log(result.data);   // Full page text
-```
-
-### OpenAI Function Calling
-
-```typescript
-import { createBrowserTools, ToolExecutor } from '@meshbrow/agent';
-import OpenAI from 'openai';
-
-const openai = new OpenAI();
-const executor = new ToolExecutor({ apiKey: process.env.MESHBROW_API_KEY! });
-
-const tools = createBrowserTools().map((t) => ({
-  type: 'function' as const,
-  function: { name: t.name, description: t.description, parameters: t.parameters },
-}));
-
-const response = await openai.chat.completions.create({
-  model: 'gpt-4o',
-  messages: [{ role: 'user', content: 'What is the current Bitcoin price on CoinGecko?' }],
-  tools,
-});
-
-for (const call of response.choices[0].message.tool_calls || []) {
-  const result = await executor.execute(call.function.name, JSON.parse(call.function.arguments));
-  console.log(result);
-}
-
-await executor.cleanup();
-```
-
-### Anthropic Claude Tool Use
-
-```typescript
-import { createBrowserTools, ToolExecutor } from '@meshbrow/agent';
-import Anthropic from '@anthropic-ai/sdk';
-
-const anthropic = new Anthropic();
-const executor = new ToolExecutor({ apiKey: process.env.MESHBROW_API_KEY! });
-
-const tools = createBrowserTools().map((t) => ({
-  name: t.name,
-  description: t.description,
-  input_schema: t.parameters,
-}));
-
-const response = await anthropic.messages.create({
-  model: 'claude-sonnet-4-20250514',
-  max_tokens: 4096,
-  messages: [{ role: 'user', content: 'Scrape the top 5 posts from Hacker News' }],
-  tools,
-});
-
-for (const block of response.content) {
-  if (block.type === 'tool_use') {
-    const result = await executor.execute(block.name, block.input as Record<string, unknown>);
-    console.log(result);
-  }
-}
-
-await executor.cleanup();
-```
-
-### Multi-Step Task
-
-```typescript
-const result = await agent.runTask({
-  description: 'Check competitor pricing',
-  url: 'https://competitor.com',
-  steps: [
-    { action: 'click', selector: 'a[href="/pricing"]' },
-    { action: 'wait', selector: '.pricing-table' },
-    { action: 'extract', selector: '.plan-price' },
-  ],
-});
-
-console.log(result.steps[2].result); // Extracted prices
-```
-
-## Example: Agent Web Research Flow
+## Example: AI Agent Web Research
 
 ```
 User: "Find the current price of Bitcoin on CoinGecko"
-
-Agent thinking: I need to browse CoinGecko with a stealth browser.
 
 Agent calls: session_create({ stealth: "max", proxy_country: "US" })
 → Returns: { id: "sess_abc123", cdp_endpoint: "wss://..." }
@@ -222,19 +178,20 @@ Agent calls: session_destroy({ session_id: "sess_abc123" })
 Agent responds: "The current Bitcoin price on CoinGecko is $67,432.12"
 ```
 
-## Packages
+## Security
 
-| Package | Install | Purpose |
-|---------|---------|---------|
-| `@meshbrow/mcp-server` | `npx -y @meshbrow/mcp-server` | MCP server for Claude/Copilot/Cursor |
-| `@meshbrow/agent` | `npm install @meshbrow/agent` | Agent SDK with LLM tool calling |
-| `@meshbrow/sdk` | `npm install @meshbrow/sdk` | Low-level API client |
+The MCP server enforces:
+
+- **API key required** — all tool calls require a valid `MESHBROW_API_KEY`
+- **Session isolation** — each session runs in its own network namespace
+- **No credential leakage** — proxy credentials and fingerprint internals are never exposed in tool responses
+- **Structured logging** — all operations are logged to stderr (never stdout, which is reserved for MCP protocol)
 
 ## Best Practices
 
 <AccordionGroup>
   <Accordion title="Reuse sessions across related tasks">
-    Don't create a new session for every page. Navigate within the same session when visiting related pages.
+    Don't create a new session for every page. Navigate within the same session when visiting related pages — it's faster and uses fewer resources.
   </Accordion>
   <Accordion title="Use profiles for authenticated workflows">
     Store login cookies in profiles so agents don't need to re-authenticate each time.

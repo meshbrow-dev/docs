@@ -90,8 +90,9 @@
         "guides/playwright",
         "guides/puppeteer",
         "guides/python",
-        "guides/mcp-agents",
         "guides/cli",
+        "guides/mcp-agents",
+        "guides/agent",
         "guides/anti-detection",
         "guides/proxy-selection"
       ]

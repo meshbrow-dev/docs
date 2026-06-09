@@ -23,12 +23,18 @@ Get a managed stealth browser running in minutes.
     # meshbrow v0.1.0 (darwin/arm64)
     ```
   </Tab>
+  <Tab title="MCP Server (for AI agents)">
+    ```bash
+    brew tap meshbrow-dev/tap
+    brew install meshbrow-mcp
+    ```
+  </Tab>
   <Tab title="TypeScript SDK">
     ```bash
     npm install @meshbrow/sdk
     ```
   </Tab>
-  <Tab title="CLI (Linux)">
+  <Tab title="Linux / CI">
     ```bash
     curl -sSL https://get.meshbrow.dev | sh
     ```
@@ -194,7 +200,8 @@ curl -X DELETE https://api.meshbrow.dev/v1/sessions/sess_abc123 \
 ## Next Steps
 
 - [CLI Reference](/guides/cli) — Full command reference for the `meshbrow` CLI
+- [MCP Server](/guides/mcp-agents) — Give AI agents browser tools (Claude, Copilot, Cursor)
+- [Browser Agent](/guides/agent) — The session daemon for health monitoring and metrics
 - [Playwright Guide](/guides/playwright) — Advanced Playwright patterns
-- [MCP & Agents](/guides/mcp-agents) — Use with Claude, Copilot, and AI agents
 - [Session Profiles](/concepts/persistence) — Reuse cookies and login states
 - [Proxy Selection](/guides/proxy-selection) — Choose the right proxy type
