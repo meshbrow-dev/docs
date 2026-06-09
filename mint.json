@@ -18,12 +18,12 @@
   "topbarLinks": [
     {
       "name": "Dashboard",
-      "url": "https://app.meshbrow.dev"
+      "url": "https://meshbrow.dev"
     }
   ],
   "topbarCtaButton": {
     "name": "Get API Key",
-    "url": "https://app.meshbrow.dev/signup"
+    "url": "https://meshbrow.dev/signup"
   },
   "tabs": [
     {
