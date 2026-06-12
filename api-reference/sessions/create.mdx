@@ -150,12 +150,29 @@ curl -X POST https://api.meshbrow.dev/v1/sessions \
 }
 ```
 
+```json 402
+{
+  "error": {
+    "code": "quota_exceeded",
+    "message": "quota exceeded for account acct_123 (plan free): 100/100 sessions used"
+  }
+}
+```
+
+```json 403
+{
+  "error": {
+    "code": "proxy_access_denied",
+    "message": "proxy type \"residential\" not available on plan free for account acct_123"
+  }
+}
+```
+
 ```json 429
 {
   "error": {
-    "code": "rate_limited",
-    "message": "Concurrent session limit reached (50/50)",
-    "retryAfter": 30
+    "code": "concurrency_limit_reached",
+    "message": "concurrent session limit reached for plan free: 2 active, 1 requested, limit 2"
   }
 }
 ```
