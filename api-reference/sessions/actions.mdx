@@ -1,0 +1,107 @@
+---
+title: Page Actions
+api: POST /v1/sessions/{id}/navigate
+description: "Drive the browser — navigate, click, type, extract, wait, scroll"
+---
+
+# Page Actions
+
+Every running session exposes action endpoints that execute real CDP commands inside the browser. All actions require session authentication and return the standard `{ "data": ... }` envelope.
+
+## Navigate
+
+`POST /v1/sessions/{id}/navigate`
+
+<ParamField body="url" type="string" required>
+  Absolute URL to navigate to.
+</ParamField>
+<ParamField body="wait_until" type="string" default="load">
+  Lifecycle event to wait for: `load`, `domcontentloaded`, or `none`. (`wait` is accepted as an alias.)
+</ParamField>
+<ParamField body="timeout" type="number" default="30">
+  Navigation timeout in seconds.
+</ParamField>
+
+```json Response
+{ "data": { "status": "complete", "url": "https://example.com/", "title": "Example" } }
+```
+
+## Execute Script
+
+`POST /v1/sessions/{id}/execute`
+
+<ParamField body="script" type="string" required>
+  JavaScript evaluated in the page context. Promises are awaited; the resolved value is returned.
+</ParamField>
+
+```json Response
+{ "data": { "result": "Example Domain" } }
+```
+
+## Click
+
+`POST /v1/sessions/{id}/click`
+
+<ParamField body="selector" type="string" required>
+  CSS selector of the element to click.
+</ParamField>
+
+## Type
+
+`POST /v1/sessions/{id}/type`
+
+<ParamField body="selector" type="string" required>
+  CSS selector of the input element.
+</ParamField>
+<ParamField body="text" type="string" required>
+  Text to type. The element's value is replaced and `input`/`change` events are dispatched.
+</ParamField>
+
+## Extract
+
+`POST /v1/sessions/{id}/extract`
+
+<ParamField body="selector" type="string" default="body">
+  CSS selector of elements to extract.
+</ParamField>
+<ParamField body="kind" type="string" default="text">
+  `text` (innerText) or `html` (outerHTML).
+</ParamField>
+<ParamField body="max_length" type="number">
+  Truncate the combined content to this many characters.
+</ParamField>
+
+```json Response
+{ "data": { "selector": "h1", "content": ["Example Domain"] } }
+```
+
+## Wait For Selector
+
+`POST /v1/sessions/{id}/wait`
+
+<ParamField body="selector" type="string" required>
+  CSS selector to wait for.
+</ParamField>
+<ParamField body="timeout_ms" type="number" default="30000">
+  Maximum wait in milliseconds. Returns `504` on timeout.
+</ParamField>
+
+## Scroll
+
+`POST /v1/sessions/{id}/scroll`
+
+<ParamField body="direction" type="string" default="down">
+  `up`, `down`, `top`, or `bottom`.
+</ParamField>
+<ParamField body="amount" type="number" default="500">
+  Pixels to scroll for `up`/`down`.
+</ParamField>
+
+## Errors
+
+| Status | Meaning |
+| ------ | ------- |
+| `400`  | Missing/invalid parameters (e.g. no `selector`). |
+| `404`  | Session not found or already destroyed. |
+| `502`  | The browser rejected the command (element missing, script exception). |
+| `504`  | `wait` timed out before the selector appeared. |

@@ -1,0 +1,58 @@
+---
+title: Cookies
+api: GET /v1/sessions/{id}/cookies
+description: "Export and import session cookies"
+---
+
+# Cookies
+
+Read cookies out of a live browser session or load cookies into one. Useful for persisting login state across sessions or seeding a session from a saved profile.
+
+## Export Cookies
+
+`GET /v1/sessions/{id}/cookies?format=json|netscape`
+
+<ParamField query="format" type="string" default="json">
+  `json` returns a JSON array of cookie objects. `netscape` returns a Netscape-format `cookies.txt` body (`Content-Type: text/plain`).
+</ParamField>
+
+```json Response (format=json)
+[
+  {
+    "name": "sid",
+    "value": "abc123",
+    "domain": "example.com",
+    "path": "/",
+    "expires": 1767225600,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  }
+]
+```
+
+## Import Cookies
+
+`POST /v1/sessions/{id}/cookies/import`
+
+<ParamField body="cookies" type="string" required>
+  Serialized cookie data (a JSON array string, or Netscape `cookies.txt` content).
+</ParamField>
+<ParamField body="format" type="string" default="json">
+  `json` or `netscape`.
+</ParamField>
+<ParamField body="merge" type="boolean" default="false">
+  When `true`, imported cookies are merged with the cookies already in the browser instead of being applied standalone.
+</ParamField>
+
+```json Response
+{ "data": { "imported": 12 } }
+```
+
+## Errors
+
+| Status | Meaning |
+| ------ | ------- |
+| `400`  | Unknown format or unparseable cookie data. |
+| `404`  | Session not found. |
+| `502`  | Browser rejected the cookie operation. |

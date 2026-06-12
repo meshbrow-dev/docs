@@ -77,6 +77,8 @@
         "api-reference/sessions/get",
         "api-reference/sessions/destroy",
         "api-reference/sessions/list",
+        "api-reference/sessions/actions",
+        "api-reference/sessions/cookies",
         "api-reference/profiles/create",
         "api-reference/profiles/get",
         "api-reference/profiles/list",
