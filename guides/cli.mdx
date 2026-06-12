@@ -45,13 +45,21 @@ meshbrow version
 
 ## Authentication
 
-Before using the CLI, authenticate with your API key:
+The easiest way to authenticate is the browser flow:
+
+```bash
+meshbrow auth login
+```
+
+This opens your browser — confirm the code shown in your terminal and click **Authorize**. The CLI finishes automatically and saves an API key to `~/.meshbrow.yaml`.
+
+To authenticate without a browser (CI, headless servers), pass a key directly:
 
 ```bash
 meshbrow auth login --key mb_live_your_key_here
 ```
 
-This saves your key to `~/.meshbrow.yaml`. You can also use environment variables:
+You can also use environment variables:
 
 ```bash
 export MESHBROW_API_KEY=mb_live_your_key_here
