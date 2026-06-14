@@ -1,28 +1,30 @@
 ---
 title: Introduction
-description: "Managed Browser Fleet for AI Agents — undetectable, scalable, observable"
+description: "Persistent Browser Infrastructure for AI Agents — cloud browsers that remember, scale, and stay undetected"
 ---
 
 # Welcome to Meshbrow
 
-Meshbrow is a **managed browser fleet** that lets developers and AI agents launch cloud-hosted stealth Chromium browsers with anti-detection, unique fingerprints, proxy rotation, and built-in plan guardrails.
+Meshbrow gives every AI agent **its own persistent cloud browser** — with saved login sessions, isolated identities, and the ability to navigate the real web without getting blocked.
 
 ## Why Meshbrow?
 
-Modern websites deploy increasingly sophisticated bot detection. Browser fingerprinting, TLS analysis, and behavioral heuristics make traditional scraping unreliable. Meshbrow solves this by providing:
+AI agents need to interact with the web the same way humans do: logging into SaaS tools, navigating dashboards, filling forms, and extracting data. But cloud-hosted browsers face two problems — they lose state between runs, and they get detected as bots.
+
+Meshbrow solves both:
 
 <CardGroup cols={2}>
-  <Card title="Stealth Browsers" icon="user-secret">
-    Every session gets a unique, consistent fingerprint that passes CreepJS, FingerprintJS, and BotD checks.
-  </Card>
-  <Card title="Proxy Rotation" icon="rotate">
-    Multi-provider pool with residential, ISP, mobile, and datacenter proxies. Automatic failover and quality scoring.
-  </Card>
-  <Card title="Full Isolation" icon="shield-halved">
-    Each browser runs in its own network namespace with dedicated IP, preventing cross-session fingerprint leakage.
-  </Card>
   <Card title="Session Persistence" icon="cookie">
-    Save and restore cookies, localStorage, and login states across sessions. Named profiles for reusable identities.
+    Save and restore cookies, localStorage, and login states across sessions. Your agent logs into Stripe once — and remembers it tomorrow.
+  </Card>
+  <Card title="Undetectable Browsing" icon="shield-halved">
+    Every session gets a unique, consistent fingerprint. Canvas noise, WebGL spoofing, TLS matching — passes CreepJS, FingerprintJS, and BotD.
+  </Card>
+  <Card title="Full Isolation" icon="lock">
+    Each browser runs in its own network namespace with a dedicated IP. No cross-session leakage, no shared state.
+  </Card>
+  <Card title="Observable & Debuggable" icon="eye">
+    HAR capture, screenshots, DOM snapshots, and session recording. See exactly what your agent sees.
   </Card>
 </CardGroup>
 
@@ -30,17 +32,17 @@ Modern websites deploy increasingly sophisticated bot detection. Browser fingerp
 
 ```mermaid
 sequenceDiagram
-    participant App as Your App/Agent
+    participant Agent as Your Agent / App
     participant API as Meshbrow API
-    participant Browser as Stealth Browser
+    participant Browser as Cloud Browser
 
-    App->>API: POST /sessions (fingerprint, proxy, geo)
-    API->>Browser: Launch isolated Chromium
-    API-->>App: { cdpUrl, sessionId }
-    App->>Browser: Connect via Playwright/Puppeteer
-    Browser-->>App: Page data, screenshots, HAR
-    App->>API: DELETE /sessions/:id
-    API->>Browser: Destroy & cleanup
+    Agent->>API: POST /sessions (profile, proxy, geo)
+    API->>Browser: Launch isolated browser
+    API-->>Agent: { cdpUrl, sessionId }
+    Agent->>Browser: Connect via Playwright/Puppeteer/MCP
+    Browser-->>Agent: Page data, screenshots, HAR
+    Agent->>API: DELETE /sessions/:id (saveProfile: true)
+    API->>Browser: Persist state & cleanup
 ```
 
 ## Connect with Any Tool
@@ -50,8 +52,8 @@ Meshbrow exposes standard **Chrome DevTools Protocol (CDP)** — connect with an
 - **Playwright** (Node.js, Python, .NET, Java)
 - **Puppeteer** (Node.js)
 - **Selenium** (any language)
+- **MCP Tools** (Claude, GPT, custom agents)
 - **CDP direct** (raw WebSocket)
-- **MCP Tools** (for AI agents like Claude, GPT, etc.)
 
 ## Quick Example
 
@@ -63,7 +65,8 @@ const browser = await chromium.connectOverCDP(
 );
 
 const page = browser.contexts()[0].pages()[0];
-await page.goto('https://example.com');
+await page.goto('https://app.hubspot.com');
+// Agent is already logged in — session was persisted from last run
 console.log(await page.title());
 ```
 
@@ -79,7 +82,7 @@ console.log(await page.title());
   <Card title="Playwright Guide" icon="masks-theater" href="/guides/playwright">
     Connect Playwright to Meshbrow browsers.
   </Card>
-  <Card title="Anti-Detection" icon="shield" href="/guides/anti-detection">
-    Best practices for staying undetected.
+  <Card title="MCP / AI Agents" icon="robot" href="/guides/mcp-agents">
+    Give your AI agents persistent browser access.
   </Card>
 </CardGroup>

@@ -1,11 +1,11 @@
 ---
 title: Quickstart
-description: "Launch your first stealth browser in under 2 minutes"
+description: "Launch your first cloud browser session in under 2 minutes"
 ---
 
 # Quickstart
 
-Get a managed stealth browser running in minutes.
+Get a persistent cloud browser running in minutes.
 
 ## 1. Install
 
@@ -109,19 +109,19 @@ const browser = await chromium.connectOverCDP(session.cdpUrl);
 const context = browser.contexts()[0];
 const page = context.pages()[0];
 
-// Browse as a real user
-await page.goto('https://nowsecure.nl');
+// Browse the web as a real user
+await page.goto('https://app.example.com/dashboard');
 await page.waitForTimeout(3000);
 
 // Take a screenshot
 await page.screenshot({ path: 'result.png' });
-console.log('Anti-detect test passed!');
+console.log('Session ready!');
 ```
 
 Or via CLI:
 
 ```bash
-meshbrow actions navigate --session sess_abc123 --url https://nowsecure.nl
+meshbrow actions navigate --session sess_abc123 --url https://app.example.com/dashboard
 meshbrow actions screenshot --session sess_abc123 --output result.png
 ```
 
